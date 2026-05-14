@@ -27,10 +27,14 @@ function getCampaign(id = activeCampaignId) {
 
 function state() {
   const saved = readState();
+  const conceptEdits = saved.conceptEdits || {};
   return {
     ...saved,
     brands: config.brands,
-    concepts: [...config.concepts, ...(saved.uploadedConcepts || [])]
+    concepts: [...config.concepts, ...(saved.uploadedConcepts || [])].map((concept) => ({
+      ...concept,
+      ...(conceptEdits[concept.id] || {})
+    }))
   };
 }
 
@@ -46,6 +50,7 @@ function seedState() {
   return {
     campaigns: structuredClone(config.campaigns).map(normaliseCampaign),
     uploadedConcepts: [],
+    conceptEdits: {},
     responses: sampleResponses(),
     updatedAt: new Date().toISOString()
   };
@@ -80,6 +85,12 @@ function normaliseCampaign(campaign) {
       ...(campaign.surveyDefinition || {})
     },
     ...campaign,
+    homeCopy: {
+      eyebrow: "Private design council",
+      title: "Help shape the next Sunday Staples launch",
+      body: "Review the same factory concepts Cherri would normally shortlist in person, then tell us what deserves to be bought, tweaked, or rejected.",
+      ...(campaign.homeCopy || {})
+    },
     questions: campaign.questions.map((question) => ({
       required: false,
       analyticsKey: question.id,
@@ -211,12 +222,13 @@ function accessView(campaign) {
 }
 
 function introView(question, campaign) {
+  const copy = campaign.homeCopy || {};
   return `
     <section class="screen two-col">
       <div>
-        <p class="eyebrow">${question.eyebrow}</p>
-        <h1>${question.title}</h1>
-        <p class="lede">${question.body}</p>
+        <p class="eyebrow">${copy.eyebrow || question.eyebrow}</p>
+        <h1>${copy.title || question.title}</h1>
+        <p class="lede">${copy.body || question.body}</p>
         <button class="primary" data-next>Start voting</button>
       </div>
       <div class="concept-preview">
@@ -463,6 +475,13 @@ function campaignAdminSection() {
     <label>Status
       <select name="status"><option ${adminDraft.status === "draft" ? "selected" : ""}>draft</option><option ${adminDraft.status === "live" ? "selected" : ""}>live</option></select>
     </label>
+    <div class="copy-editor-panel">
+      <h3>Home Page Copy</h3>
+      <p class="hint">Edit the first screen customers see after they enter the preview.</p>
+      <label>Eyebrow<input name="homeEyebrow" value="${escapeAttr(adminDraft.homeCopy?.eyebrow || "")}" /></label>
+      <label>Headline<input name="homeTitle" value="${escapeAttr(adminDraft.homeCopy?.title || "")}" /></label>
+      <label>Intro body<textarea name="homeBody">${adminDraft.homeCopy?.body || ""}</textarea></label>
+    </div>
   `;
 }
 
@@ -848,15 +867,22 @@ function conceptsAdminSection(s) {
   return `
     <div class="section-kicker">Concept Library</div>
     <h2>Select the designs in this campaign.</h2>
-    <p class="hint">Each concept is a reusable product record with brand, factory, media, and campaign relationships.</p>
-    <div class="library-grid">
+    <p class="hint">Edit concept names and factory metadata here. These details flow into the customer preview, survey modules, and results dashboard.</p>
+    <div class="editable-concept-list">
       ${s.concepts.map((concept) => `
-        <label class="library-card">
-          <input type="checkbox" value="${concept.id}" ${adminDraft.conceptIds.includes(concept.id) ? "checked" : ""} />
+        <article class="editable-concept-card" data-concept-editor="${concept.id}">
           ${mediaElement(concept)}
-          <strong>${concept.name}</strong>
-          <span>${concept.factoryCode}</span>
-        </label>
+          <div class="concept-edit-fields">
+            <label class="switch-inline"><input data-concept-include type="checkbox" value="${concept.id}" ${adminDraft.conceptIds.includes(concept.id) ? "checked" : ""} />Include in campaign</label>
+            <label>Factory code<input data-concept-field="factoryCode" value="${escapeAttr(concept.factoryCode)}" /></label>
+            <label>Concept name<input data-concept-field="name" value="${escapeAttr(concept.name)}" /></label>
+            <div class="concept-field-row">
+              <label>Category<input data-concept-field="category" value="${escapeAttr(concept.category)}" /></label>
+              <label>Material<input data-concept-field="material" value="${escapeAttr(concept.material)}" /></label>
+              <label>Price band<input data-concept-field="priceBand" value="${escapeAttr(concept.priceBand)}" /></label>
+            </div>
+          </div>
+        </article>
       `).join("")}
     </div>
   `;
@@ -1536,9 +1562,45 @@ function persistVisibleAdminFields() {
   if (data.has("audience")) adminDraft.audience = data.get("audience");
   if (data.has("reward")) adminDraft.reward = data.get("reward");
   if (data.has("status")) adminDraft.status = data.get("status");
+  if (data.has("homeEyebrow") || data.has("homeTitle") || data.has("homeBody")) {
+    adminDraft.homeCopy = {
+      eyebrow: data.get("homeEyebrow") || "",
+      title: data.get("homeTitle") || "",
+      body: data.get("homeBody") || ""
+    };
+    const intro = adminDraft.questions.find((question) => question.type === "intro");
+    if (intro) {
+      intro.eyebrow = adminDraft.homeCopy.eyebrow;
+      intro.title = adminDraft.homeCopy.title;
+      intro.body = adminDraft.homeCopy.body;
+    }
+  }
   const checkedConcepts = [...document.querySelectorAll(".library-card input:checked")].map((input) => input.value);
-  if (checkedConcepts.length || adminSection === "concepts") adminDraft.conceptIds = checkedConcepts;
+  const editableCheckedConcepts = [...document.querySelectorAll("[data-concept-include]:checked")].map((input) => input.value);
+  if (editableCheckedConcepts.length || adminSection === "concepts") adminDraft.conceptIds = editableCheckedConcepts;
+  else if (checkedConcepts.length) adminDraft.conceptIds = checkedConcepts;
+  persistConceptEdits();
   persistSurveyDefinitionFields();
+}
+
+function persistConceptEdits() {
+  const rows = [...document.querySelectorAll("[data-concept-editor]")];
+  if (!rows.length) return;
+  const next = readState();
+  next.conceptEdits ||= {};
+  rows.forEach((row) => {
+    const id = row.dataset.conceptEditor;
+    const field = (name) => row.querySelector(`[data-concept-field="${name}"]`)?.value.trim();
+    next.conceptEdits[id] = {
+      ...(next.conceptEdits[id] || {}),
+      factoryCode: field("factoryCode"),
+      name: field("name"),
+      category: field("category"),
+      material: field("material"),
+      priceBand: field("priceBand")
+    };
+  });
+  writeState(next);
 }
 
 function persistSurveyDefinitionFields() {

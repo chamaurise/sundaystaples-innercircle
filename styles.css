@@ -1042,6 +1042,19 @@ textarea {
   text-transform: uppercase;
 }
 
+.copy-editor-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(167, 123, 63, 0.3);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fffaf4;
+}
+
+.copy-editor-panel h3 {
+  margin: 0;
+}
+
 .library-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -1107,6 +1120,41 @@ textarea {
 .library-card:has(input:checked) {
   outline: 3px solid var(--sage);
   outline-offset: 2px;
+}
+
+.editable-concept-list {
+  display: grid;
+  gap: 12px;
+}
+
+.editable-concept-card {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.editable-concept-card img,
+.editable-concept-card video {
+  width: 140px;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #efe7dc;
+}
+
+.concept-edit-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.concept-field-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .question-card {
@@ -1304,6 +1352,19 @@ dd {
   .readiness-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .editable-concept-card {
+    grid-template-columns: 110px 1fr;
+  }
+
+  .editable-concept-card img,
+  .editable-concept-card video {
+    width: 110px;
+  }
+
+  .concept-field-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1353,16 +1414,46 @@ dd {
   }
 
   .battle-grid {
-    gap: 14px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
 
   .product-card div {
-    padding: 14px;
+    padding: 10px;
   }
 
   .product-card img,
   .product-card video {
-    max-height: 360px;
+    max-height: 220px;
+    aspect-ratio: 4 / 5;
+  }
+
+  .product-card .eyebrow {
+    font-size: 10px;
+    margin-bottom: 5px;
+  }
+
+  .product-card h3 {
+    font-size: 16px;
+    line-height: 1.12;
+    margin-bottom: 5px;
+  }
+
+  .product-card p:not(.eyebrow) {
+    font-size: 12px;
+    line-height: 1.3;
+    margin-bottom: 10px;
+  }
+
+  .product-card .primary {
+    width: 100%;
+    padding: 10px 8px;
+    font-size: 13px;
+    min-height: 42px;
+  }
+
+  .compact {
+    padding: 12px;
   }
 
   .admin-sidebar {
@@ -1417,6 +1508,7 @@ dd {
   .mini-concept-grid,
   .rules-panel,
   .reason-card,
+  .editable-concept-card,
   .choice-grid,
   .result-card dl {
     grid-template-columns: 1fr;
@@ -1482,6 +1574,12 @@ dd {
     width: 86px;
   }
 
+  .editable-concept-card img,
+  .editable-concept-card video {
+    width: 100%;
+    max-height: 260px;
+  }
+
   .button-row {
     align-items: stretch;
   }
@@ -1518,6 +1616,23 @@ dd {
   .option-grid,
   .uploaded-strip {
     grid-template-columns: 1fr;
+  }
+
+  .battle-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-card {
+    grid-template-columns: 96px 1fr;
+    align-items: stretch;
+  }
+
+  .product-card img,
+  .product-card video {
+    width: 96px;
+    height: 100%;
+    max-height: none;
+    aspect-ratio: auto;
   }
 
   .module-actions {
