@@ -1,0 +1,20 @@
+Sunday Staples Inner Circle Vercel upload
+Generated: 2026-05-14 23:39:59 +08:00
+
+Upload these files to the root of chamaurise/sundaystaples-innercircle:
+- index.html
+- config.js
+- app.js
+- styles.css
+- server.js
+- package.json
+- vercel.json
+
+Keep the existing shoe-concepts/ folder in GitHub.
+
+Recent included changes:
+- Editable Concept Library metadata fields
+- Campaign Setup home page copy editor
+- Four-round physical focus group survey logic template
+- Survey Logic media upload and thumbnail tray
+- Mobile optimised side-by-side comparison cards
