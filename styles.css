@@ -200,7 +200,10 @@ h3 {
 .field textarea,
 .session-select,
 .bracket-row select,
-.image-control-card input {
+.image-control-card input,
+.research-template-card input,
+.purchase-diagnostic-row input,
+.purchase-diagnostic-row select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -377,6 +380,33 @@ h3 {
   margin-top: 18px;
   display: grid;
   gap: 12px;
+}
+
+.compact-question {
+  margin-top: 14px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.choice-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.choice-chip input {
+  accent-color: var(--accent);
 }
 
 .option-grid {
@@ -576,6 +606,76 @@ h3 {
     #fff;
 }
 
+.research-template-grid,
+.research-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.research-template-card,
+.research-insight-card {
+  display: grid;
+  gap: 11px;
+  align-content: start;
+  border: 1px solid rgba(223,213,200,0.9);
+  border-radius: 6px;
+  background: rgba(255,255,255,0.82);
+  padding: 14px;
+}
+
+.research-template-card h4,
+.research-insight-card h4 {
+  margin: 0;
+}
+
+.research-template-card label,
+.purchase-diagnostic-row label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.template-kicker {
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.purchase-diagnostic-list {
+  display: grid;
+  gap: 10px;
+}
+
+.purchase-diagnostic-row {
+  display: grid;
+  grid-template-columns: 84px minmax(140px, 1.1fr) repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: #fff;
+}
+
+.purchase-diagnostic-row img {
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  object-position: var(--image-x, 50%) var(--image-y, 50%);
+  clip-path: inset(var(--clip-top, 0%) var(--clip-right, 0%) var(--clip-bottom, 0%) var(--clip-left, 0%));
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--soft);
+}
+
+.research-insight-grid {
+  margin: 14px 0;
+}
+
 .session-select {
   max-width: 280px;
 }
@@ -681,6 +781,7 @@ h3 {
 
 .switch-row input {
   width: auto;
+  padding: 0;
 }
 
 .image-control-grid {
@@ -1121,8 +1222,14 @@ h3 {
 @media (max-width: 860px) {
   .hero,
   .battle-grid,
-  .dashboard-grid {
+  .dashboard-grid,
+  .research-template-grid,
+  .research-insight-grid {
     grid-template-columns: 1fr;
+  }
+
+  .purchase-diagnostic-row {
+    grid-template-columns: 72px 1fr;
   }
 
   .member-strip,

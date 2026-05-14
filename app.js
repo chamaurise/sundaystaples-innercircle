@@ -11,8 +11,12 @@ const founderSessionKey = "sunday-circle-founder-session";
 const imageSettingsKey = "sunday-circle-image-settings";
 const comparisonModeKey = "sunday-circle-comparison-mode";
 const groupRulesKey = "sunday-circle-group-rules";
+const researchSettingsKey = "sunday-circle-research-settings";
 
 const ageRanges = ["18-24", "25-34", "35-44", "45-54", "55+"];
+const purchaseUrgencies = ["Today", "This week", "This month", "Later"];
+const purchaseBarriers = ["None", "Price", "Color", "Comfort", "Styling", "Need more photos"];
+const designDrivers = ["Shape", "Color", "Comfort", "Material", "Occasion", "Uniqueness"];
 
 let view = "review";
 let customer = readSavedCustomer();
@@ -28,10 +32,31 @@ const emptyState = () => ({
   brackets: {},
   groupRules: {},
   imageSettings: {},
+  researchSettings: defaultResearchSettings(),
   comparisonMode: "off",
   updatedAt: null,
   audit: []
 });
+
+function defaultResearchSettings() {
+  return {
+    battle: {
+      enabled: true,
+      captureConfidence: true,
+      captureDrivers: true,
+      requireReason: false,
+      prompt: "Which design do you prefer?"
+    },
+    purchase: {
+      enabled: true,
+      captureUrgency: true,
+      captureBarrier: true,
+      capturePriceFeel: true,
+      captureOccasion: true,
+      prompt: "Which designs would make you want to purchase immediately?"
+    }
+  };
+}
 
 function readSavedCustomer() {
   try {
@@ -52,6 +77,7 @@ function freshReview() {
     sessionId: currentSessionId(),
     ranking: activeDesigns().map((design) => design.id),
     noBudget: [],
+    purchaseIntent: {},
     comments: "",
     usefulDetails: "",
     consent: true,
@@ -152,6 +178,29 @@ function saveGroupRules(rules) {
   updateRemoteState({ groupRules: rules }, "group-rules-updated");
 }
 
+function getResearchSettings() {
+  const defaults = defaultResearchSettings();
+  const saved = remoteState?.researchSettings || readLocalResearchSettings();
+  return {
+    battle: { ...defaults.battle, ...(saved.battle || {}) },
+    purchase: { ...defaults.purchase, ...(saved.purchase || {}) }
+  };
+}
+
+function readLocalResearchSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(researchSettingsKey) || "{}");
+  } catch (error) {
+    localStorage.removeItem(researchSettingsKey);
+    return {};
+  }
+}
+
+function saveResearchSettings(settings) {
+  localStorage.setItem(researchSettingsKey, JSON.stringify(settings));
+  updateRemoteState({ researchSettings: settings }, "research-settings-updated");
+}
+
 function getGroupBracketForCustomer() {
   if (!customer?.ageRange) return null;
   const rule = getGroupRules()[currentSessionId()]?.[customer.ageRange];
@@ -218,6 +267,7 @@ function currentState() {
     brackets: getCustomBrackets(),
     groupRules: getGroupRules(),
     imageSettings: getImageSettings(),
+    researchSettings: getResearchSettings(),
     comparisonMode: comparisonModeEnabled() ? "on" : "off"
   };
 }
@@ -370,6 +420,7 @@ function reviewScreen() {
   if (review.step === "battle" && !currentBattleNode()) review.step = "immediate";
   if (review.step === "battle") return battleScreen();
   if (review.step === "immediate") return immediateScreen();
+  if (review.step === "purchaseDiagnostic") return purchaseDiagnosticScreen();
   if (review.step === "ranking") return rankingScreen();
   if (review.step === "nobudget") return noBudgetScreen();
   if (review.step === "final") return finalFeedbackScreen();
@@ -420,6 +471,7 @@ function accessScreen() {
 }
 
 function battleScreen() {
+  const settings = getResearchSettings().battle;
   const battleNodes = activeBattleNodes();
   const node = currentBattleNode();
   const pair = node.pair;
@@ -430,31 +482,120 @@ function battleScreen() {
     <section class="screen">
       ${memberSummary()}
       <div class="eyebrow">Battle ${review.battles.length + 1} of ${battleNodes.length}</div>
-      <h2>Which design do you prefer?</h2>
+      <h2>${settings.prompt}</h2>
       <p class="lede">Choose with your instinct first. The goal is to capture real taste, not overthink the answer.</p>
       <div class="progress" style="--progress:${progress}%"><span></span></div>
       <div class="battle-grid">
         ${designCard(left, "Choose this design", "battle-choice")}
         ${designCard(right, "Choose this design", "battle-choice")}
       </div>
+      ${settings.captureConfidence ? confidenceQuestion() : ""}
+      ${settings.captureDrivers ? driverQuestion() : ""}
       <div class="field">
         <label for="battleWhy">Why did that design win for you?</label>
-        <textarea id="battleWhy" placeholder="Shape, color, comfort, outfit potential, uniqueness..."></textarea>
+        <textarea id="battleWhy" ${settings.requireReason ? "required" : ""} placeholder="Shape, color, comfort, outfit potential, uniqueness..."></textarea>
       </div>
     </section>
   `;
 }
 
 function immediateScreen() {
+  const purchase = getResearchSettings().purchase;
   return multiSelectScreen({
     stepName: "Purchase Intent",
-    title: "Which designs would make you want to purchase immediately?",
+    title: purchase.prompt,
     body: "This separates general liking from actual buying desire.",
     selected: review.immediate,
     action: "toggle-immediate",
-    next: "ranking",
-    nextLabel: "Rank all designs"
+    next: purchase.enabled ? "purchaseDiagnostic" : "ranking",
+    nextLabel: purchase.enabled ? "Add purchase detail" : "Rank all designs"
   });
+}
+
+function confidenceQuestion() {
+  return `
+    <div class="field compact-question">
+      <label>How confident are you in this choice?</label>
+      <div class="chip-row" data-confidence-group>
+        ${["Instant yes", "Quite sure", "Close call"].map((label, index) => `
+          <label class="choice-chip">
+            <input type="radio" name="battleConfidence" value="${label}" ${index === 1 ? "checked" : ""} />
+            <span>${label}</span>
+          </label>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function driverQuestion() {
+  return `
+    <div class="field compact-question">
+      <label>What mainly drove your choice?</label>
+      <div class="chip-row">
+        ${designDrivers.map((driver) => `
+          <label class="choice-chip">
+            <input type="checkbox" name="battleDrivers" value="${driver}" />
+            <span>${driver}</span>
+          </label>
+        `).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function purchaseDiagnosticScreen() {
+  const settings = getResearchSettings().purchase;
+  const designIds = review.immediate.length ? review.immediate : activeDesigns().slice(0, 5).map((design) => design.id);
+  return `
+    <section class="screen">
+      ${memberSummary()}
+      <div class="eyebrow">Purchase Intent Studio</div>
+      <h2>What would turn interest into a purchase?</h2>
+      <p class="lede">A short commercial read on the designs that created buying desire.</p>
+      <div class="purchase-diagnostic-list">
+        ${designIds.map((id) => purchaseDiagnosticRow(findDesign(id), settings)).join("")}
+      </div>
+      <div class="button-row" style="margin-top:18px">
+        <button class="ghost-button" data-step="immediate">Back</button>
+        <button class="primary-button" data-action="purchase-next">Rank all designs</button>
+      </div>
+    </section>
+  `;
+}
+
+function purchaseDiagnosticRow(design, settings) {
+  if (!design) return "";
+  const saved = review.purchaseIntent[design.id] || {};
+  return `
+    <article class="purchase-diagnostic-row" data-purchase-row="${design.id}">
+      <img style="${imageStyle(design)}" src="${design.image}" alt="${design.name}" />
+      <div>
+        <strong>${design.name}</strong>
+        <span class="hint">${displayDescription(design)}</span>
+      </div>
+      ${settings.captureUrgency ? selectField("urgency", "Buy timing", purchaseUrgencies, saved.urgency || "This week") : ""}
+      ${settings.captureBarrier ? selectField("barrier", "Main blocker", purchaseBarriers, saved.barrier || "None") : ""}
+      ${settings.capturePriceFeel ? selectField("priceFeel", "Price feel", ["Good value", "Acceptable", "Slightly high", "Too high"], saved.priceFeel || "Acceptable") : ""}
+      ${settings.captureOccasion ? `
+        <label>
+          Occasion
+          <input data-purchase-field="occasion" maxlength="32" value="${escapeAttribute(saved.occasion || "")}" placeholder="Work, weekend, travel..." />
+        </label>
+      ` : ""}
+    </article>
+  `;
+}
+
+function selectField(field, label, options, selected) {
+  return `
+    <label>
+      ${label}
+      <select data-purchase-field="${field}">
+        ${options.map((option) => `<option value="${option}" ${option === selected ? "selected" : ""}>${option}</option>`).join("")}
+      </select>
+    </label>
+  `;
 }
 
 function rankingScreen() {
@@ -468,7 +609,7 @@ function rankingScreen() {
         ${review.ranking.map((id, index) => rankItem(findDesign(id), index)).join("")}
       </div>
       <div class="button-row" style="margin-top:18px">
-        <button class="ghost-button" data-step="immediate">Back</button>
+        <button class="ghost-button" data-step="${getResearchSettings().purchase.enabled ? "purchaseDiagnostic" : "immediate"}">Back</button>
         <button class="primary-button" data-step="nobudget">Continue</button>
       </div>
     </section>
@@ -720,6 +861,8 @@ function analyticsStudio(responses, metrics) {
   const completed = responses.length;
   const buyNowLeader = [...metrics].sort((a, b) => b.immediate - a.immediate)[0];
   const desireLeader = [...metrics].sort((a, b) => b.noBudget - a.noBudget)[0];
+  const purchase = purchaseIntentInsights(responses);
+  const battle = battleSignalInsights(responses);
   const segments = ageRanges.map((range) => {
     const group = responses.filter((response) => response.ageRange === range);
     const groupMetrics = buildMetrics(group);
@@ -740,12 +883,66 @@ function analyticsStudio(responses, metrics) {
         <div class="decision-card"><span>No-budget desire</span><strong>${desireLeader?.name || "-"}</strong></div>
         <div class="decision-card"><span>Completed reviews</span><strong>${completed}</strong></div>
       </div>
+      <div class="research-insight-grid">
+        <div class="research-insight-card">
+          <h4>Design Battle Read</h4>
+          <p><strong>${battle.topConfidence || "-"}</strong> has the strongest confident-win signal.</p>
+          <p class="hint">Top choice drivers: ${battle.topDrivers.join(", ") || "-"}</p>
+        </div>
+        <div class="research-insight-card">
+          <h4>Purchase Intent Read</h4>
+          <p><strong>${purchase.readyDesign || "-"}</strong> is closest to launch-ready purchase demand.</p>
+          <p class="hint">Main blocker: ${purchase.topBarrier || "-"}. Fastest timing: ${purchase.fastestTiming || "-"}.</p>
+        </div>
+      </div>
       <div class="segment-table">
         <div class="segment-row segment-head"><strong>Segment</strong><strong>Responses</strong><strong>Leading design</strong></div>
         ${segments.map((segment) => `<div class="segment-row"><span>${segment.range}</span><span>${segment.count}</span><span>${segment.winner}</span></div>`).join("")}
       </div>
     </div>
   `;
+}
+
+function battleSignalInsights(responses) {
+  const confidenceByDesign = {};
+  const drivers = {};
+  responses.forEach((response) => {
+    (response.battles || []).forEach((battle) => {
+      if (battle.confidence === "Instant yes" || battle.confidence === "Quite sure") {
+        confidenceByDesign[battle.winner] = (confidenceByDesign[battle.winner] || 0) + 1;
+      }
+      (battle.drivers || []).forEach((driver) => {
+        drivers[driver] = (drivers[driver] || 0) + 1;
+      });
+    });
+  });
+  const topConfidenceId = Object.entries(confidenceByDesign).sort((a, b) => b[1] - a[1])[0]?.[0];
+  return {
+    topConfidence: findDesign(topConfidenceId)?.name || "",
+    topDrivers: Object.entries(drivers).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([driver]) => driver)
+  };
+}
+
+function purchaseIntentInsights(responses) {
+  const readiness = {};
+  const barriers = {};
+  const timings = {};
+  responses.forEach((response) => {
+    Object.entries(response.purchaseIntent || {}).forEach(([id, item]) => {
+      if (item.urgency === "Today") readiness[id] = (readiness[id] || 0) + 4;
+      if (item.urgency === "This week") readiness[id] = (readiness[id] || 0) + 3;
+      if (item.priceFeel === "Good value") readiness[id] = (readiness[id] || 0) + 2;
+      if (item.priceFeel === "Acceptable") readiness[id] = (readiness[id] || 0) + 1;
+      if (item.barrier && item.barrier !== "None") barriers[item.barrier] = (barriers[item.barrier] || 0) + 1;
+      if (item.urgency) timings[item.urgency] = (timings[item.urgency] || 0) + 1;
+    });
+  });
+  const readyId = Object.entries(readiness).sort((a, b) => b[1] - a[1])[0]?.[0];
+  return {
+    readyDesign: findDesign(readyId)?.name || "",
+    topBarrier: Object.entries(barriers).sort((a, b) => b[1] - a[1])[0]?.[0] || "None captured",
+    fastestTiming: Object.entries(timings).sort((a, b) => b[1] - a[1])[0]?.[0] || ""
+  };
 }
 
 function rewardConsole(responses) {
@@ -834,6 +1031,7 @@ function founderControls() {
   const brackets = getCustomBrackets();
   const pairs = brackets[selectedSession]?.length ? brackets[selectedSession] : defaultBracketForSession(selectedSession);
   return `
+    ${researchStudioControls()}
     ${imagePrepControls()}
     <div class="panel founder-controls">
       <div class="panel-title">
@@ -859,6 +1057,75 @@ function founderControls() {
     </div>
     ${logicTreeReview(selectedSession, pairs)}
     ${groupRuleControls(selectedSession, pairs)}
+  `;
+}
+
+function researchStudioControls() {
+  const settings = getResearchSettings();
+  return `
+    <div class="panel research-studio founder-controls">
+      <div class="panel-title">
+        <div>
+          <div class="eyebrow">Survey Studio</div>
+          <h3>Design Battle + Purchase Intent Templates</h3>
+          <p class="hint">Qualtrics-style controls adapted for Sunday Staples: configure the questions, signals, and commercial diagnostics customers see.</p>
+        </div>
+      </div>
+      <div class="research-template-grid">
+        <article class="research-template-card">
+          <div class="template-kicker">A. Design Battle Studio</div>
+          <h4>Preference, confidence, and choice drivers</h4>
+          <label>
+            Battle question
+            <input data-research-field="battle-prompt" maxlength="90" value="${escapeAttribute(settings.battle.prompt)}" />
+          </label>
+          <label class="switch-row small-switch">
+            <input type="checkbox" data-research-field="battle-confidence" ${settings.battle.captureConfidence ? "checked" : ""} />
+            Capture confidence after each battle
+          </label>
+          <label class="switch-row small-switch">
+            <input type="checkbox" data-research-field="battle-drivers" ${settings.battle.captureDrivers ? "checked" : ""} />
+            Capture design drivers
+          </label>
+          <label class="switch-row small-switch">
+            <input type="checkbox" data-research-field="battle-reason" ${settings.battle.requireReason ? "checked" : ""} />
+            Require a short reason
+          </label>
+        </article>
+        <article class="research-template-card">
+          <div class="template-kicker">B. Purchase Intent Studio</div>
+          <h4>Buying urgency, barriers, price feel, and occasion</h4>
+          <label>
+            Purchase question
+            <input data-research-field="purchase-prompt" maxlength="100" value="${escapeAttribute(settings.purchase.prompt)}" />
+          </label>
+          <label class="switch-row small-switch">
+            <input type="checkbox" data-research-field="purchase-enabled" ${settings.purchase.enabled ? "checked" : ""} />
+            Add purchase diagnostic step
+          </label>
+          <label class="switch-row small-switch">
+            <input type="checkbox" data-research-field="purchase-urgency" ${settings.purchase.captureUrgency ? "checked" : ""} />
+            Capture buying timing
+          </label>
+          <label class="switch-row small-switch">
+            <input type="checkbox" data-research-field="purchase-barrier" ${settings.purchase.captureBarrier ? "checked" : ""} />
+            Capture purchase blocker
+          </label>
+          <label class="switch-row small-switch">
+            <input type="checkbox" data-research-field="purchase-price" ${settings.purchase.capturePriceFeel ? "checked" : ""} />
+            Capture price feel
+          </label>
+          <label class="switch-row small-switch">
+            <input type="checkbox" data-research-field="purchase-occasion" ${settings.purchase.captureOccasion ? "checked" : ""} />
+            Capture use occasion
+          </label>
+        </article>
+      </div>
+      <div class="button-row" style="margin-top:16px">
+        <button class="primary-button" data-action="save-research-settings">Save survey settings</button>
+        <button class="ghost-button" data-action="reset-research-settings">Reset survey settings</button>
+      </div>
+    </div>
   `;
 }
 
@@ -1255,6 +1522,11 @@ function bindEvents() {
       const node = currentBattleNode();
       const pair = node.pair;
       const why = document.querySelector("#battleWhy")?.value || "";
+      const settings = getResearchSettings().battle;
+      if (settings.requireReason && why.trim().length < 3) {
+        document.querySelector("#battleWhy")?.focus();
+        return;
+      }
       const winnerSide = button.dataset.id === pair[0] ? "left" : "right";
       const next = winnerSide === "left" ? node.leftNext : node.rightNext;
       review.battles.push({
@@ -1263,7 +1535,9 @@ function bindEvents() {
         winner: button.dataset.id,
         winnerSide,
         next,
-        reason: why.trim()
+        reason: why.trim(),
+        confidence: document.querySelector("input[name='battleConfidence']:checked")?.value || "",
+        drivers: [...document.querySelectorAll("input[name='battleDrivers']:checked")].map((item) => item.value)
       });
       review.battleIndex += 1;
       if (next && next !== "end" && activeBattleNodes().some((item) => item.id === next)) {
@@ -1298,6 +1572,12 @@ function bindEvents() {
     });
   });
 
+  document.querySelector("[data-action='purchase-next']")?.addEventListener("click", () => {
+    review.purchaseIntent = readPurchaseRows();
+    review.step = "ranking";
+    render();
+  });
+
   document.querySelectorAll("[data-action='rank-up'], [data-action='rank-down']").forEach((button) => {
     button.addEventListener("click", () => {
       const index = Number(button.dataset.index);
@@ -1326,6 +1606,7 @@ function bindEvents() {
       tier: customer.tier,
       battles: review.battles,
       immediate: review.immediate,
+      purchaseIntent: review.purchaseIntent,
       ranking: review.ranking,
       noBudget: review.noBudget,
       comments: review.comments,
@@ -1380,6 +1661,17 @@ function bindEvents() {
 
   document.querySelector("[data-action='select-founder-session']")?.addEventListener("change", (event) => {
     localStorage.setItem(founderSessionKey, event.target.value);
+    render();
+  });
+
+  document.querySelector("[data-action='save-research-settings']")?.addEventListener("click", () => {
+    saveResearchSettings(readResearchControls());
+    render();
+  });
+
+  document.querySelector("[data-action='reset-research-settings']")?.addEventListener("click", () => {
+    localStorage.removeItem(researchSettingsKey);
+    saveResearchSettings(defaultResearchSettings());
     render();
   });
 
@@ -1642,6 +1934,43 @@ function readImageControlRows() {
     };
   });
   return settings;
+}
+
+function readPurchaseRows() {
+  const rows = {};
+  document.querySelectorAll("[data-purchase-row]").forEach((row) => {
+    const id = row.dataset.purchaseRow;
+    const field = (name) => row.querySelector(`[data-purchase-field='${name}']`);
+    rows[id] = {
+      urgency: field("urgency")?.value || "",
+      barrier: field("barrier")?.value || "",
+      priceFeel: field("priceFeel")?.value || "",
+      occasion: field("occasion")?.value.trim().slice(0, 32) || ""
+    };
+  });
+  return rows;
+}
+
+function readResearchControls() {
+  const checked = (name) => Boolean(document.querySelector(`[data-research-field='${name}']`)?.checked);
+  const value = (name) => document.querySelector(`[data-research-field='${name}']`)?.value.trim();
+  return {
+    battle: {
+      enabled: true,
+      captureConfidence: checked("battle-confidence"),
+      captureDrivers: checked("battle-drivers"),
+      requireReason: checked("battle-reason"),
+      prompt: value("battle-prompt") || defaultResearchSettings().battle.prompt
+    },
+    purchase: {
+      enabled: checked("purchase-enabled"),
+      captureUrgency: checked("purchase-urgency"),
+      captureBarrier: checked("purchase-barrier"),
+      capturePriceFeel: checked("purchase-price"),
+      captureOccasion: checked("purchase-occasion"),
+      prompt: value("purchase-prompt") || defaultResearchSettings().purchase.prompt
+    }
+  };
 }
 
 function updateControlPreview(card) {
