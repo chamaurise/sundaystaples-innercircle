@@ -326,7 +326,7 @@ h3 {
   object-position: var(--image-x, 50%) var(--image-y, 50%);
   transform: scale(var(--image-scale, 1));
   transform-origin: var(--image-x, 50%) var(--image-y, 50%);
-  clip-path: inset(var(--snip-y, 0%) var(--snip-x, 0%));
+  clip-path: inset(var(--clip-top, 0%) var(--clip-right, 0%) var(--clip-bottom, 0%) var(--clip-left, 0%));
   background:
     linear-gradient(135deg, rgba(255,255,255,0.72), rgba(255,255,255,0.3)),
     linear-gradient(135deg, var(--c1), var(--c2));
@@ -500,7 +500,7 @@ h3 {
   aspect-ratio: 1;
   object-fit: cover;
   object-position: var(--image-x, 50%) var(--image-y, 50%);
-  clip-path: inset(var(--snip-y, 0%) var(--snip-x, 0%));
+  clip-path: inset(var(--clip-top, 0%) var(--clip-right, 0%) var(--clip-bottom, 0%) var(--clip-left, 0%));
   border-radius: 4px;
   border: 1px solid var(--line);
 }
@@ -525,7 +525,7 @@ h3 {
   height: 82px;
   object-fit: cover;
   object-position: var(--image-x, 50%) var(--image-y, 50%);
-  clip-path: inset(var(--snip-y, 0%) var(--snip-x, 0%));
+  clip-path: inset(var(--clip-top, 0%) var(--clip-right, 0%) var(--clip-bottom, 0%) var(--clip-left, 0%));
   border-radius: 4px;
   border: 1px solid var(--line);
   background: white;
@@ -554,7 +554,7 @@ h3 {
   display: block;
   object-fit: cover;
   object-position: var(--image-x, 50%) var(--image-y, 50%);
-  clip-path: inset(var(--snip-y, 0%) var(--snip-x, 0%));
+  clip-path: inset(var(--clip-top, 0%) var(--clip-right, 0%) var(--clip-bottom, 0%) var(--clip-left, 0%));
   background: var(--soft);
 }
 
@@ -644,7 +644,7 @@ h3 {
   height: 74px;
   object-fit: cover;
   object-position: var(--image-x, 50%) var(--image-y, 50%);
-  clip-path: inset(var(--snip-y, 0%) var(--snip-x, 0%));
+  clip-path: inset(var(--clip-top, 0%) var(--clip-right, 0%) var(--clip-bottom, 0%) var(--clip-left, 0%));
   border-radius: 4px;
   border: 1px solid var(--line);
   background: var(--soft);
@@ -708,7 +708,7 @@ h3 {
     #f7f2ea;
   background-size: 24px 24px;
   background-position: 0 0, 0 12px, 12px -12px, -12px 0;
-  cursor: grab;
+  cursor: default;
   touch-action: none;
 }
 
@@ -731,17 +731,14 @@ h3 {
 
 .crop-frame {
   position: absolute;
-  width: calc(100% - 28px - (var(--snip-x, 0%) * 2));
-  max-width: calc(100% - 28px);
-  aspect-ratio: var(--crop-aspect, 1 / 1);
-  max-height: calc(100% - 28px - (var(--snip-y, 0%) * 2));
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  left: var(--crop-left, 8%);
+  top: var(--crop-top, 8%);
+  width: var(--crop-width, 84%);
+  height: var(--crop-height, 84%);
   border: 1px solid rgba(255,255,255,0.9);
   outline: 999px solid rgba(16, 16, 15, 0.18);
   box-shadow: inset 0 0 0 1px rgba(16,16,15,0.24);
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .crop-frame::before,
@@ -754,6 +751,93 @@ h3 {
 
 .crop-frame::after {
   inset: 66.666% 0 auto 0;
+}
+
+.crop-frame [data-crop-handle] {
+  position: absolute;
+  display: block;
+  background: rgba(255,255,255,0.96);
+  border: 1px solid rgba(16,16,15,0.32);
+  box-shadow: 0 2px 8px rgba(16,16,15,0.2);
+  z-index: 2;
+}
+
+.crop-frame [data-crop-handle="move"] {
+  inset: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  cursor: move;
+  z-index: 1;
+}
+
+.crop-frame [data-crop-handle="nw"],
+.crop-frame [data-crop-handle="ne"],
+.crop-frame [data-crop-handle="sw"],
+.crop-frame [data-crop-handle="se"] {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+}
+
+.crop-frame [data-crop-handle="nw"] {
+  left: -8px;
+  top: -8px;
+  cursor: nwse-resize;
+}
+
+.crop-frame [data-crop-handle="ne"] {
+  right: -8px;
+  top: -8px;
+  cursor: nesw-resize;
+}
+
+.crop-frame [data-crop-handle="sw"] {
+  left: -8px;
+  bottom: -8px;
+  cursor: nesw-resize;
+}
+
+.crop-frame [data-crop-handle="se"] {
+  right: -8px;
+  bottom: -8px;
+  cursor: nwse-resize;
+}
+
+.crop-frame [data-crop-handle="n"],
+.crop-frame [data-crop-handle="s"] {
+  left: 50%;
+  width: 34px;
+  height: 10px;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  cursor: ns-resize;
+}
+
+.crop-frame [data-crop-handle="n"] {
+  top: -5px;
+}
+
+.crop-frame [data-crop-handle="s"] {
+  bottom: -5px;
+}
+
+.crop-frame [data-crop-handle="e"],
+.crop-frame [data-crop-handle="w"] {
+  top: 50%;
+  width: 10px;
+  height: 34px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  cursor: ew-resize;
+}
+
+.crop-frame [data-crop-handle="e"] {
+  right: -5px;
+}
+
+.crop-frame [data-crop-handle="w"] {
+  left: -5px;
 }
 
 .crop-instruction {
@@ -845,7 +929,7 @@ h3 {
   aspect-ratio: 1;
   object-fit: cover;
   object-position: var(--image-x, 50%) var(--image-y, 50%);
-  clip-path: inset(var(--snip-y, 0%) var(--snip-x, 0%));
+  clip-path: inset(var(--clip-top, 0%) var(--clip-right, 0%) var(--clip-bottom, 0%) var(--clip-left, 0%));
   border: 1px solid var(--line);
   border-radius: 4px;
 }

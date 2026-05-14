@@ -302,6 +302,10 @@ function imageSetting(designId) {
     zoom: Number(saved.zoom ?? 100),
     snipX: Number(saved.snipX ?? 0),
     snipY: Number(saved.snipY ?? 0),
+    cropLeft: Number(saved.cropLeft ?? saved.snipX ?? 8),
+    cropTop: Number(saved.cropTop ?? saved.snipY ?? 8),
+    cropWidth: Number(saved.cropWidth ?? 84),
+    cropHeight: Number(saved.cropHeight ?? 84),
     aspect: String(saved.aspect || "1:1"),
     description: String(saved.description || ""),
     harmonise: Boolean(saved.harmonise)
@@ -310,7 +314,9 @@ function imageSetting(designId) {
 
 function imageStyle(design) {
   const setting = imageSetting(design.id);
-  return `--c1:${design.c1};--c2:${design.c2};--image-x:${setting.x}%;--image-y:${setting.y}%;--image-zoom:${setting.zoom}%;--image-scale:${setting.zoom / 100};--snip-x:${setting.snipX}%;--snip-y:${setting.snipY}%;--crop-aspect:${aspectValue(setting.aspect)};`;
+  const right = Math.max(0, 100 - setting.cropLeft - setting.cropWidth);
+  const bottom = Math.max(0, 100 - setting.cropTop - setting.cropHeight);
+  return `--c1:${design.c1};--c2:${design.c2};--image-x:${setting.x}%;--image-y:${setting.y}%;--image-zoom:${setting.zoom}%;--image-scale:${setting.zoom / 100};--crop-left:${setting.cropLeft}%;--crop-top:${setting.cropTop}%;--crop-width:${setting.cropWidth}%;--crop-height:${setting.cropHeight}%;--clip-top:${setting.cropTop}%;--clip-right:${right}%;--clip-bottom:${bottom}%;--clip-left:${setting.cropLeft}%;--crop-aspect:${aspectValue(setting.aspect)};`;
 }
 
 function aspectValue(aspect) {
@@ -1026,7 +1032,14 @@ function assetPipelineSummary() {
   const harmonise = allDesigns.filter((design) => imageSetting(design.id).harmonise).length;
   const cropped = allDesigns.filter((design) => {
     const setting = imageSetting(design.id);
-    return setting.x !== 50 || setting.y !== 50 || setting.zoom !== 100 || setting.snipX || setting.snipY || setting.aspect !== "1:1";
+    return setting.x !== 50
+      || setting.y !== 50
+      || setting.zoom !== 100
+      || setting.cropLeft !== 8
+      || setting.cropTop !== 8
+      || setting.cropWidth !== 84
+      || setting.cropHeight !== 84
+      || setting.aspect !== "1:1";
   }).length;
   return `
     <div class="decision-grid asset-pipeline">
@@ -1044,8 +1057,18 @@ function imageControlCard(design) {
     <article class="image-control-card" data-image-control="${design.id}">
       <div class="crop-stage" data-crop-stage style="${imageStyle(design)}">
         <img class="control-preview" draggable="false" style="${imageStyle(design)}" src="${design.image}" alt="${design.name}" />
-        <div class="crop-frame"></div>
-        <div class="crop-instruction">Drag image to crop</div>
+        <div class="crop-frame" data-crop-box>
+          <span data-crop-handle="move"></span>
+          <span data-crop-handle="nw"></span>
+          <span data-crop-handle="ne"></span>
+          <span data-crop-handle="sw"></span>
+          <span data-crop-handle="se"></span>
+          <span data-crop-handle="n"></span>
+          <span data-crop-handle="s"></span>
+          <span data-crop-handle="e"></span>
+          <span data-crop-handle="w"></span>
+        </div>
+        <div class="crop-instruction">Drag box or pull handles</div>
       </div>
       <div class="control-body">
         <strong>${design.name}</strong>
@@ -1058,14 +1081,10 @@ function imageControlCard(design) {
         </label>
         <input data-image-field="x" type="hidden" value="${setting.x}" />
         <input data-image-field="y" type="hidden" value="${setting.y}" />
-        <label>
-          Horizontal snip
-          <input data-image-field="snipX" type="range" min="0" max="40" value="${setting.snipX}" />
-        </label>
-        <label>
-          Vertical snip
-          <input data-image-field="snipY" type="range" min="0" max="40" value="${setting.snipY}" />
-        </label>
+        <input data-image-field="cropLeft" type="hidden" value="${setting.cropLeft}" />
+        <input data-image-field="cropTop" type="hidden" value="${setting.cropTop}" />
+        <input data-image-field="cropWidth" type="hidden" value="${setting.cropWidth}" />
+        <input data-image-field="cropHeight" type="hidden" value="${setting.cropHeight}" />
         <label>
           Zoom
           <input data-image-field="zoom" type="range" min="70" max="180" value="${setting.zoom}" />
@@ -1520,6 +1539,7 @@ function bindEvents() {
       const card = button.closest("[data-image-control]");
       card.querySelectorAll("[data-aspect]").forEach((item) => item.classList.remove("active"));
       button.classList.add("active");
+      setCropBox(card, boxForAspect(button.dataset.aspect));
       updateControlPreview(card);
     });
   });
@@ -1528,19 +1548,19 @@ function bindEvents() {
     let dragging = false;
     let startX = 0;
     let startY = 0;
-    let startCropX = 50;
-    let startCropY = 50;
+    let mode = "move";
+    let startBox = null;
 
     const card = stage.closest("[data-image-control]");
-    const xInput = card.querySelector("[data-image-field='x']");
-    const yInput = card.querySelector("[data-image-field='y']");
 
     stage.addEventListener("pointerdown", (event) => {
+      const handle = event.target.closest("[data-crop-handle]");
+      if (!handle) return;
       dragging = true;
       startX = event.clientX;
       startY = event.clientY;
-      startCropX = Number(xInput.value);
-      startCropY = Number(yInput.value);
+      mode = handle.dataset.cropHandle;
+      startBox = getCropBox(card);
       stage.setPointerCapture(event.pointerId);
       stage.classList.add("is-dragging");
     });
@@ -1550,8 +1570,7 @@ function bindEvents() {
       const rect = stage.getBoundingClientRect();
       const deltaX = ((event.clientX - startX) / rect.width) * 100;
       const deltaY = ((event.clientY - startY) / rect.height) * 100;
-      xInput.value = clamp(startCropX - deltaX, 0, 100);
-      yInput.value = clamp(startCropY - deltaY, 0, 100);
+      setCropBox(card, resizeCropBox(startBox, mode, deltaX, deltaY));
       updateControlPreview(card);
     });
 
@@ -1613,8 +1632,10 @@ function readImageControlRows() {
       x: Number(field("x").value),
       y: Number(field("y").value),
       zoom: Number(field("zoom").value),
-      snipX: Number(field("snipX").value),
-      snipY: Number(field("snipY").value),
+      cropLeft: Number(field("cropLeft").value),
+      cropTop: Number(field("cropTop").value),
+      cropWidth: Number(field("cropWidth").value),
+      cropHeight: Number(field("cropHeight").value),
       aspect: card.querySelector("[data-aspect].active")?.dataset.aspect || "1:1",
       description: field("description").value.slice(0, 30),
       harmonise: field("harmonise").checked
@@ -1629,20 +1650,91 @@ function updateControlPreview(card) {
   const x = card.querySelector("[data-image-field='x']").value;
   const y = card.querySelector("[data-image-field='y']").value;
   const zoom = card.querySelector("[data-image-field='zoom']").value;
-  const snipX = card.querySelector("[data-image-field='snipX']").value;
-  const snipY = card.querySelector("[data-image-field='snipY']").value;
+  const box = getCropBox(card);
   const aspect = card.querySelector("[data-aspect].active")?.dataset.aspect || "1:1";
   const stage = card.querySelector("[data-crop-stage]");
+  const right = Math.max(0, 100 - box.left - box.width);
+  const bottom = Math.max(0, 100 - box.top - box.height);
   preview.style.setProperty("--image-x", `${x}%`);
   preview.style.setProperty("--image-y", `${y}%`);
   preview.style.setProperty("--image-zoom", `${zoom}%`);
   preview.style.setProperty("--image-scale", `${Number(zoom) / 100}`);
-  preview.style.setProperty("--snip-x", `${snipX}%`);
-  preview.style.setProperty("--snip-y", `${snipY}%`);
+  preview.style.setProperty("--clip-top", `${box.top}%`);
+  preview.style.setProperty("--clip-right", `${right}%`);
+  preview.style.setProperty("--clip-bottom", `${bottom}%`);
+  preview.style.setProperty("--clip-left", `${box.left}%`);
   preview.style.setProperty("--crop-aspect", aspectValue(aspect));
-  stage.style.setProperty("--snip-x", `${snipX}%`);
-  stage.style.setProperty("--snip-y", `${snipY}%`);
+  stage.style.setProperty("--crop-left", `${box.left}%`);
+  stage.style.setProperty("--crop-top", `${box.top}%`);
+  stage.style.setProperty("--crop-width", `${box.width}%`);
+  stage.style.setProperty("--crop-height", `${box.height}%`);
   stage.style.setProperty("--crop-aspect", aspectValue(aspect));
+}
+
+function getCropBox(card) {
+  const field = (name) => card.querySelector(`[data-image-field='${name}']`);
+  return {
+    left: Number(field("cropLeft").value),
+    top: Number(field("cropTop").value),
+    width: Number(field("cropWidth").value),
+    height: Number(field("cropHeight").value)
+  };
+}
+
+function setCropBox(card, box) {
+  card.querySelector("[data-image-field='cropLeft']").value = round(box.left);
+  card.querySelector("[data-image-field='cropTop']").value = round(box.top);
+  card.querySelector("[data-image-field='cropWidth']").value = round(box.width);
+  card.querySelector("[data-image-field='cropHeight']").value = round(box.height);
+}
+
+function boxForAspect(aspect) {
+  const presets = {
+    "1:1": { width: 84, height: 84 },
+    "4:6": { width: 56, height: 84 },
+    "6:4": { width: 84, height: 56 },
+    "4:5": { width: 67.2, height: 84 }
+  };
+  const size = presets[aspect] || presets["1:1"];
+  return {
+    left: (100 - size.width) / 2,
+    top: (100 - size.height) / 2,
+    width: size.width,
+    height: size.height
+  };
+}
+
+function resizeCropBox(start, mode, dx, dy) {
+  const min = 18;
+  let left = start.left;
+  let top = start.top;
+  let width = start.width;
+  let height = start.height;
+
+  if (mode === "move") {
+    left = clamp(start.left + dx, 0, 100 - width);
+    top = clamp(start.top + dy, 0, 100 - height);
+  }
+  if (mode.includes("w")) {
+    left = clamp(start.left + dx, 0, start.left + start.width - min);
+    width = start.width + (start.left - left);
+  }
+  if (mode.includes("e")) {
+    width = clamp(start.width + dx, min, 100 - left);
+  }
+  if (mode.includes("n")) {
+    top = clamp(start.top + dy, 0, start.top + start.height - min);
+    height = start.height + (start.top - top);
+  }
+  if (mode.includes("s")) {
+    height = clamp(start.height + dy, min, 100 - top);
+  }
+
+  return { left, top, width, height };
+}
+
+function round(value) {
+  return Math.round(value * 10) / 10;
 }
 
 function updateBracketThumb(row, side) {
