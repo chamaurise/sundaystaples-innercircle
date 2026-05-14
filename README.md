@@ -11,15 +11,25 @@ Private Sunday Staples design-battle prototype for friends, employees, and top-t
 - Supports customer group assignment by age range.
 - Tracks rewards and feedback locally in the browser.
 
-## Current Pilot Note
+## Online Pilot Storage
 
-This prototype currently stores feedback in browser storage. That means it works well for local testing and demos, but an online employee pilot needs shared storage before responses from different people can appear together in one founder dashboard.
+This version includes a Vercel API route at `api/state.js`.
 
-Recommended next production step:
+For shared employee testing, connect Vercel KV or Vercel Redis to the project so these environment variables are available:
 
-- Deploy the frontend to Vercel.
-- Add a shared database or Vercel KV/Redis storage for responses, brackets, image settings, and customer rules.
-- Protect the founder dashboard before wider testing.
+- `KV_REST_API_URL`
+- `KV_REST_API_TOKEN`
+
+Once connected, the Founder Dashboard syncs:
+
+- responses
+- reward approval status
+- bracket logic trees
+- group assignment rules
+- image crop and asset settings
+- comparison mode
+
+If KV is not connected, the app falls back to browser storage and shows a setup warning in the Founder Dashboard.
 
 ## Local Use
 
@@ -33,10 +43,17 @@ Pilot login:
 
 ## Vercel Static Deployment
 
-This folder is ready to import into Vercel as a static project.
+This folder is ready to import into Vercel.
 
 No build command is required.
 
 Output directory:
 
 `.` 
+
+## Deployment Workflow
+
+- GitHub is the source of truth.
+- Vercel should be connected to the GitHub repository.
+- Pushes to `main` redeploy the app.
+- Use Vercel Preview deployments for testing larger dashboard changes before inviting customers.

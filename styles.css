@@ -891,6 +891,94 @@ h3 {
   color: #8f392f;
 }
 
+.sync-banner {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 14px 16px;
+  background: #fff;
+  margin: 18px 0;
+}
+
+.sync-banner strong {
+  color: var(--accent);
+}
+
+.sync-banner.setup strong,
+.sync-banner.offline strong {
+  color: var(--accent-2);
+}
+
+.sync-banner span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.decision-grid,
+.ops-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.decision-card,
+.ops-grid div {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  padding: 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.decision-card span,
+.ops-grid span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.decision-card strong {
+  font-size: 20px;
+}
+
+.segment-table,
+.reward-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.segment-row,
+.reward-row {
+  display: grid;
+  grid-template-columns: 1fr 0.6fr 1.2fr;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+  background: #fff;
+}
+
+.segment-head {
+  background: var(--soft);
+}
+
+.reward-row {
+  grid-template-columns: 1fr auto;
+}
+
+.reward-row span {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 3px;
+}
+
 .results-list {
   display: grid;
   gap: 12px;
@@ -958,7 +1046,9 @@ h3 {
   .concept-grid,
   .image-control-grid,
   .group-rule-grid,
-  .logic-summary-grid {
+  .logic-summary-grid,
+  .decision-grid,
+  .ops-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1001,8 +1091,17 @@ h3 {
   .image-control-grid,
   .group-rule-grid,
   .logic-summary-grid,
+  .decision-grid,
+  .ops-grid,
   .hero-gallery {
     grid-template-columns: 1fr;
+  }
+
+  .segment-row,
+  .reward-row,
+  .sync-banner {
+    grid-template-columns: 1fr;
+    display: grid;
   }
 
   .panel-title {

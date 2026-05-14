@@ -18,6 +18,20 @@ let view = "review";
 let customer = readSavedCustomer();
 let review = freshReview();
 let accessError = "";
+let remoteState = null;
+let syncStatus = "offline";
+let syncMessage = "Local fallback active";
+let saveTimer = null;
+
+const emptyState = () => ({
+  responses: [],
+  brackets: {},
+  groupRules: {},
+  imageSettings: {},
+  comparisonMode: "off",
+  updatedAt: null,
+  audit: []
+});
 
 function readSavedCustomer() {
   try {
@@ -124,6 +138,7 @@ function currentBattleNode() {
 }
 
 function getGroupRules() {
+  if (remoteState?.groupRules) return remoteState.groupRules;
   try {
     return JSON.parse(localStorage.getItem(groupRulesKey) || "{}");
   } catch (error) {
@@ -134,6 +149,7 @@ function getGroupRules() {
 
 function saveGroupRules(rules) {
   localStorage.setItem(groupRulesKey, JSON.stringify(rules));
+  updateRemoteState({ groupRules: rules }, "group-rules-updated");
 }
 
 function getGroupBracketForCustomer() {
@@ -143,6 +159,7 @@ function getGroupBracketForCustomer() {
 }
 
 function getCustomBrackets() {
+  if (remoteState?.brackets) return remoteState.brackets;
   try {
     return JSON.parse(localStorage.getItem(bracketKey) || "{}");
   } catch (error) {
@@ -153,6 +170,7 @@ function getCustomBrackets() {
 
 function saveCustomBrackets(brackets) {
   localStorage.setItem(bracketKey, JSON.stringify(brackets));
+  updateRemoteState({ brackets }, "brackets-updated");
 }
 
 function founderSessionId() {
@@ -183,11 +201,78 @@ function defaultBracketForSession(sessionId) {
 }
 
 function getResponses() {
+  if (remoteState?.responses) return remoteState.responses;
   return JSON.parse(localStorage.getItem(storageKey) || "[]");
 }
 
 function saveResponses(responses) {
   localStorage.setItem(storageKey, JSON.stringify(responses));
+  updateRemoteState({ responses }, "responses-updated");
+}
+
+function currentState() {
+  return {
+    ...emptyState(),
+    ...(remoteState || {}),
+    responses: getResponses(),
+    brackets: getCustomBrackets(),
+    groupRules: getGroupRules(),
+    imageSettings: getImageSettings(),
+    comparisonMode: comparisonModeEnabled() ? "on" : "off"
+  };
+}
+
+function updateRemoteState(patch, action) {
+  const audit = [...(remoteState?.audit || [])].slice(-50);
+  audit.push({ action, at: new Date().toISOString() });
+  remoteState = {
+    ...currentState(),
+    ...patch,
+    audit,
+    updatedAt: new Date().toISOString()
+  };
+  persistStateSoon();
+}
+
+function persistStateSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(persistState, 300);
+}
+
+async function persistState() {
+  try {
+    const response = await fetch("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: remoteState })
+    });
+    if (!response.ok) throw new Error("Shared storage not ready");
+    syncStatus = "online";
+    syncMessage = "Shared dashboard synced";
+  } catch (error) {
+    syncStatus = "offline";
+    syncMessage = "Saved locally. Connect Vercel KV for shared storage.";
+  }
+}
+
+async function loadRemoteState() {
+  try {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error("Shared storage unavailable");
+    const payload = await response.json();
+    if (payload.state) {
+      remoteState = { ...emptyState(), ...payload.state };
+      syncStatus = "online";
+      syncMessage = "Shared dashboard live";
+    } else {
+      syncStatus = payload.setupRequired ? "setup" : "offline";
+      syncMessage = payload.setupRequired ? "Connect Vercel KV to collect employee data." : "Local fallback active";
+    }
+  } catch (error) {
+    syncStatus = "offline";
+    syncMessage = "Local fallback active";
+  }
+  render();
 }
 
 function findDesign(id) {
@@ -195,6 +280,7 @@ function findDesign(id) {
 }
 
 function getImageSettings() {
+  if (remoteState?.imageSettings) return remoteState.imageSettings;
   try {
     return JSON.parse(localStorage.getItem(imageSettingsKey) || "{}");
   } catch (error) {
@@ -205,6 +291,7 @@ function getImageSettings() {
 
 function saveImageSettings(settings) {
   localStorage.setItem(imageSettingsKey, JSON.stringify(settings));
+  updateRemoteState({ imageSettings: settings }, "image-settings-updated");
 }
 
 function imageSetting(designId) {
@@ -239,7 +326,7 @@ function displayDescription(design) {
 }
 
 function comparisonModeEnabled() {
-  return localStorage.getItem(comparisonModeKey) === "on";
+  return (remoteState?.comparisonMode || localStorage.getItem(comparisonModeKey)) === "on";
 }
 
 function render() {
@@ -544,9 +631,40 @@ function dashboardScreen() {
       <div class="eyebrow">Founder view</div>
       <h2>Design Battle Results</h2>
       <p class="lede">This dashboard shows the first closed-loop signals: preference, buy-now intent, pure desire, ranking, and pending Sunday Points rewards.</p>
+      ${syncBanner()}
+      ${deploymentOpsPanel()}
       ${responses.length ? dashboardContent(responses, metrics) : emptyDashboard()}
       ${founderControls()}
     </section>
+  `;
+}
+
+function deploymentOpsPanel() {
+  return `
+    <div class="panel ops-panel">
+      <div class="panel-title">
+        <div>
+          <div class="eyebrow">Deployment workflow</div>
+          <h3>Online Pilot Readiness</h3>
+          <p class="hint">GitHub remains the source of truth. Vercel redeploys when changes are pushed. Connect Vercel KV to turn this into a shared employee pilot.</p>
+        </div>
+      </div>
+      <div class="ops-grid">
+        <div><strong>Frontend</strong><span>Static app on Vercel</span></div>
+        <div><strong>Shared storage</strong><span>${syncStatus === "online" ? "Connected" : "Needs Vercel KV env vars"}</span></div>
+        <div><strong>Founder data</strong><span>Responses, rewards, brackets, image settings</span></div>
+        <div><strong>Fallback</strong><span>Browser local storage remains available</span></div>
+      </div>
+    </div>
+  `;
+}
+
+function syncBanner() {
+  return `
+    <div class="sync-banner ${syncStatus}">
+      <strong>${syncStatus === "online" ? "Shared storage connected" : syncStatus === "setup" ? "Shared storage setup needed" : "Local fallback mode"}</strong>
+      <span>${syncMessage}</span>
+    </div>
   `;
 }
 
@@ -555,6 +673,8 @@ function emptyDashboard() {
     <div class="empty">
       No completed reviews yet. Start with the Member Review tab, use one of the pilot emails, and complete the design battle.
     </div>
+    ${analyticsStudio([], buildMetrics([]))}
+    ${rewardConsole([])}
     ${conceptLibrary(allDesigns)}
   `;
 }
@@ -584,7 +704,82 @@ function dashboardContent(responses, metrics) {
         </div>
       </div>
     </div>
+    ${analyticsStudio(responses, metrics)}
+    ${rewardConsole(responses)}
     ${conceptLibrary(metrics.map((item) => findDesign(item.id)).filter(Boolean))}
+  `;
+}
+
+function analyticsStudio(responses, metrics) {
+  const completed = responses.length;
+  const buyNowLeader = [...metrics].sort((a, b) => b.immediate - a.immediate)[0];
+  const desireLeader = [...metrics].sort((a, b) => b.noBudget - a.noBudget)[0];
+  const segments = ageRanges.map((range) => {
+    const group = responses.filter((response) => response.ageRange === range);
+    const groupMetrics = buildMetrics(group);
+    return { range, count: group.length, winner: groupMetrics[0]?.name || "-" };
+  });
+  return `
+    <div class="panel analytics-studio">
+      <div class="panel-title">
+        <div>
+          <div class="eyebrow">Decision intelligence</div>
+          <h3>Founder Analytics Studio</h3>
+          <p class="hint">A sharper operating view for product decisions, segment reads, and launch confidence.</p>
+        </div>
+      </div>
+      <div class="decision-grid">
+        <div class="decision-card"><span>Overall winner</span><strong>${metrics[0]?.name || "-"}</strong></div>
+        <div class="decision-card"><span>Buy-now leader</span><strong>${buyNowLeader?.name || "-"}</strong></div>
+        <div class="decision-card"><span>No-budget desire</span><strong>${desireLeader?.name || "-"}</strong></div>
+        <div class="decision-card"><span>Completed reviews</span><strong>${completed}</strong></div>
+      </div>
+      <div class="segment-table">
+        <div class="segment-row segment-head"><strong>Segment</strong><strong>Responses</strong><strong>Leading design</strong></div>
+        ${segments.map((segment) => `<div class="segment-row"><span>${segment.range}</span><span>${segment.count}</span><span>${segment.winner}</span></div>`).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function rewardConsole(responses) {
+  const pending = responses.filter((response) => response.rewardStatus === "Pending founder approval");
+  const approved = responses.filter((response) => response.rewardStatus === "Approved");
+  const issued = responses.filter((response) => response.rewardStatus === "Issued to Smile.io");
+  return `
+    <div class="panel reward-console">
+      <div class="panel-title">
+        <div>
+          <div class="eyebrow">Sunday Points</div>
+          <h3>Reward Approval Console</h3>
+          <p class="hint">Track feedback rewards separately from product analytics so points can be approved cleanly.</p>
+        </div>
+      </div>
+      <div class="decision-grid">
+        <div class="decision-card"><span>Pending</span><strong>${pending.length}</strong></div>
+        <div class="decision-card"><span>Approved</span><strong>${approved.length}</strong></div>
+        <div class="decision-card"><span>Issued</span><strong>${issued.length}</strong></div>
+        <div class="decision-card"><span>Points pending</span><strong>${pending.reduce((sum, item) => sum + item.points, 0)}</strong></div>
+      </div>
+      <div class="reward-list">
+        ${responses.slice(-12).reverse().map((response, index) => rewardRow(response, responses.length - 1 - index)).join("") || `<p class="hint">No rewards to review yet.</p>`}
+      </div>
+    </div>
+  `;
+}
+
+function rewardRow(response, index) {
+  return `
+    <div class="reward-row">
+      <div>
+        <strong>${response.customerEmail}</strong>
+        <span>${response.ageRange || "-"} - ${response.points} points - ${response.rewardStatus}</span>
+      </div>
+      <div class="button-row">
+        <button class="small-button" data-action="reward-status" data-index="${index}" data-status="Approved">Approve</button>
+        <button class="small-button" data-action="reward-status" data-index="${index}" data-status="Issued to Smile.io">Mark issued</button>
+      </div>
+    </div>
   `;
 }
 
@@ -812,6 +1007,7 @@ function imagePrepControls() {
           Uniform preview
         </label>
       </div>
+      ${assetPipelineSummary()}
       <div class="image-control-grid">
         ${allDesigns.map((design) => imageControlCard(design)).join("")}
       </div>
@@ -820,6 +1016,24 @@ function imagePrepControls() {
         <button class="ghost-button" data-action="reset-image-settings">Reset image settings</button>
       </div>
       <p class="hint">AI harmonisation is captured as a production flag for now. The current local preview uses a uniform comparison treatment; later this can trigger a real AI image-processing queue.</p>
+    </div>
+  `;
+}
+
+function assetPipelineSummary() {
+  const settings = getImageSettings();
+  const labelled = allDesigns.filter((design) => imageSetting(design.id).description.trim()).length;
+  const harmonise = allDesigns.filter((design) => imageSetting(design.id).harmonise).length;
+  const cropped = allDesigns.filter((design) => {
+    const setting = imageSetting(design.id);
+    return setting.x !== 50 || setting.y !== 50 || setting.zoom !== 100 || setting.snipX || setting.snipY || setting.aspect !== "1:1";
+  }).length;
+  return `
+    <div class="decision-grid asset-pipeline">
+      <div class="decision-card"><span>Assets</span><strong>${allDesigns.length}</strong></div>
+      <div class="decision-card"><span>Labelled</span><strong>${labelled}</strong></div>
+      <div class="decision-card"><span>Cropped</span><strong>${cropped}</strong></div>
+      <div class="decision-card"><span>AI harmonise queue</span><strong>${harmonise}</strong></div>
     </div>
   `;
 }
@@ -1122,6 +1336,18 @@ function bindEvents() {
     }
   });
 
+  document.querySelectorAll("[data-action='reward-status']").forEach((button) => {
+    button.addEventListener("click", () => {
+      const responses = getResponses();
+      const index = Number(button.dataset.index);
+      if (!responses[index]) return;
+      responses[index].rewardStatus = button.dataset.status;
+      responses[index].rewardUpdatedAt = new Date().toISOString();
+      saveResponses(responses);
+      render();
+    });
+  });
+
   document.querySelector("[data-action='export']")?.addEventListener("click", () => {
     const payload = JSON.stringify(getResponses(), null, 2);
     const blob = new Blob([payload], { type: "application/json" });
@@ -1267,6 +1493,7 @@ function bindEvents() {
 
   document.querySelector("[data-action='comparison-mode']")?.addEventListener("change", (event) => {
     localStorage.setItem(comparisonModeKey, event.target.checked ? "on" : "off");
+    updateRemoteState({ comparisonMode: event.target.checked ? "on" : "off" }, "comparison-mode-updated");
     render();
   });
 
@@ -1279,6 +1506,7 @@ function bindEvents() {
     if (confirm("Reset all image crop, description, and harmonisation settings?")) {
       localStorage.removeItem(imageSettingsKey);
       localStorage.removeItem(comparisonModeKey);
+      updateRemoteState({ imageSettings: {}, comparisonMode: "off" }, "image-settings-reset");
       render();
     }
   });
@@ -1448,3 +1676,4 @@ function moveRank(index, direction) {
 }
 
 render();
+loadRemoteState();
