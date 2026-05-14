@@ -8,6 +8,9 @@ let member = null;
 let participant = freshParticipant();
 let adminDraft = null;
 let adminSection = "campaign";
+let syncStatus = "local";
+let syncMessage = "Saved in this browser";
+let saveTimer = null;
 
 function freshParticipant() {
   const campaign = getCampaign(activeCampaignId);
@@ -91,6 +94,12 @@ function normaliseCampaign(campaign) {
       body: "Review the same factory concepts Cherri would normally shortlist in person, then tell us what deserves to be bought, tweaked, or rejected.",
       ...(campaign.homeCopy || {})
     },
+    accessCopy: {
+      eyebrow: "Invite-only Sunday Perk",
+      title: "Shape what Sunday Staples orders next.",
+      body: "A mobile focus room for early factory concepts, pairwise battles, ranking, buying intent, and loyalty rewards.",
+      ...(campaign.accessCopy || {})
+    },
     questions: campaign.questions.map((question) => ({
       required: false,
       analyticsKey: question.id,
@@ -103,6 +112,52 @@ function normaliseCampaign(campaign) {
 
 function writeState(next) {
   localStorage.setItem(stateKey, JSON.stringify({ ...next, updatedAt: new Date().toISOString() }));
+  persistSharedStateSoon(next);
+}
+
+function persistSharedStateSoon(next) {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => persistSharedState(next), 250);
+}
+
+async function persistSharedState(next) {
+  try {
+    const response = await fetch("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: next })
+    });
+    if (!response.ok) throw new Error("Shared state unavailable");
+    syncStatus = "shared";
+    syncMessage = "Saved for everyone";
+  } catch (error) {
+    syncStatus = "local";
+    syncMessage = "Saved only in this browser. Configure Vercel KV for shared changes.";
+  }
+  render();
+}
+
+async function loadSharedState() {
+  try {
+    const response = await fetch("/api/state");
+    if (!response.ok) throw new Error("Shared state unavailable");
+    const payload = await response.json();
+    if (payload.state && !payload.setupRequired) {
+      localStorage.setItem(stateKey, JSON.stringify({
+        ...seedState(),
+        ...payload.state
+      }));
+      syncStatus = "shared";
+      syncMessage = "Shared campaign state loaded";
+    } else if (payload.setupRequired) {
+      syncStatus = "setup";
+      syncMessage = "Configure Vercel KV so admin edits apply for everyone.";
+    }
+  } catch (error) {
+    syncStatus = "local";
+    syncMessage = "Local browser state active";
+  }
+  render();
 }
 
 function sampleResponses() {
@@ -193,12 +248,13 @@ function memberView() {
 }
 
 function accessView(campaign) {
+  const copy = campaign.accessCopy || {};
   return `
     <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">Invite-only Sunday Perk</p>
-        <h1>Shape what Sunday Staples orders next.</h1>
-        <p class="lede">A mobile focus room for early factory concepts, pairwise battles, ranking, buying intent, and loyalty rewards.</p>
+        <p class="eyebrow">${copy.eyebrow}</p>
+        <h1>${copy.title}</h1>
+        <p class="lede">${copy.body}</p>
         <div class="metric-strip">
           <span><strong>${campaign.conceptIds.length}</strong> concepts</span>
           <span><strong>${campaign.questions.length - 1}</strong> prompts</span>
@@ -307,6 +363,7 @@ function rankingView(question, campaign) {
       ${progress()}
       <p class="eyebrow">Peer-to-peer ranking</p>
       <h2>${question.prompt}</h2>
+      <p class="lede">Drag the thumbnails into order. #1 is the best and strongest choice.</p>
       <div class="rank-list">
         ${participant.ranking.map((id, index) => rankRow(findConcept(id), index)).join("")}
       </div>
@@ -428,6 +485,7 @@ function adminView() {
           <p class="eyebrow">Cherri's research builder</p>
           <h1>Build a focus group without code.</h1>
           <p class="lede">Upload or reference media, choose question types, preview the customer journey, and keep the data model ready for future brands.</p>
+          <p class="sync-note ${syncStatus}">${syncMessage}</p>
         </div>
         <button class="primary" data-save-campaign>Save campaign</button>
       </div>
@@ -475,6 +533,13 @@ function campaignAdminSection() {
     <label>Status
       <select name="status"><option ${adminDraft.status === "draft" ? "selected" : ""}>draft</option><option ${adminDraft.status === "live" ? "selected" : ""}>live</option></select>
     </label>
+    <div class="copy-editor-panel">
+      <h3>Access Page Copy</h3>
+      <p class="hint">Edit the first screen customers see before they enter their email.</p>
+      <label>Eyebrow<input name="accessEyebrow" value="${escapeAttr(adminDraft.accessCopy?.eyebrow || "")}" /></label>
+      <label>Headline<input name="accessTitle" value="${escapeAttr(adminDraft.accessCopy?.title || "")}" /></label>
+      <label>Intro body<textarea name="accessBody">${adminDraft.accessCopy?.body || ""}</textarea></label>
+    </div>
     <div class="copy-editor-panel">
       <h3>Home Page Copy</h3>
       <p class="hint">Edit the first screen customers see after they enter the preview.</p>
@@ -1269,14 +1334,9 @@ function conceptTile(concept) {
 
 function rankRow(concept, index) {
   return `
-    <article class="rank-row">
+    <article class="rank-row thumbnail-rank-row" draggable="true" data-rank-row="${index}">
       <span>${index + 1}</span>
-      ${mediaElement(concept)}
-      <strong>${concept.name}</strong>
-      <div>
-        <button data-rank="${index}" data-dir="-1" ${index === 0 ? "disabled" : ""}>Up</button>
-        <button data-rank="${index}" data-dir="1" ${index === participant.ranking.length - 1 ? "disabled" : ""}>Down</button>
-      </div>
+      <div class="rank-thumb" title="${escapeAttr(concept.name)}">${mediaElement(concept)}</div>
     </article>
   `;
 }
@@ -1349,13 +1409,20 @@ function bindEvents() {
     nextStep();
   });
 
-  document.querySelectorAll("[data-rank]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const index = Number(button.dataset.rank);
-      const dir = Number(button.dataset.dir);
-      const next = index + dir;
-      const ranking = participant.ranking;
-      [ranking[index], ranking[next]] = [ranking[next], ranking[index]];
+  document.querySelectorAll("[data-rank-row]").forEach((row) => {
+    row.addEventListener("dragstart", (event) => {
+      event.dataTransfer.setData("text/plain", row.dataset.rankRow);
+      row.classList.add("dragging");
+    });
+    row.addEventListener("dragend", () => row.classList.remove("dragging"));
+    row.addEventListener("dragover", (event) => event.preventDefault());
+    row.addEventListener("drop", (event) => {
+      event.preventDefault();
+      const from = Number(event.dataTransfer.getData("text/plain"));
+      const to = Number(row.dataset.rankRow);
+      if (Number.isNaN(from) || Number.isNaN(to) || from === to) return;
+      const [moved] = participant.ranking.splice(from, 1);
+      participant.ranking.splice(to, 0, moved);
       render();
     });
   });
@@ -1574,6 +1641,13 @@ function persistVisibleAdminFields() {
       intro.title = adminDraft.homeCopy.title;
       intro.body = adminDraft.homeCopy.body;
     }
+  }
+  if (data.has("accessEyebrow") || data.has("accessTitle") || data.has("accessBody")) {
+    adminDraft.accessCopy = {
+      eyebrow: data.get("accessEyebrow") || "",
+      title: data.get("accessTitle") || "",
+      body: data.get("accessBody") || ""
+    };
   }
   const checkedConcepts = [...document.querySelectorAll(".library-card input:checked")].map((input) => input.value);
   const editableCheckedConcepts = [...document.querySelectorAll("[data-concept-include]:checked")].map((input) => input.value);
@@ -1895,3 +1969,4 @@ function escapeAttr(value) {
 }
 
 render();
+loadSharedState();

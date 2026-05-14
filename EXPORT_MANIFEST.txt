@@ -1,5 +1,5 @@
 Sunday Staples Inner Circle Vercel upload
-Generated: 2026-05-14 23:39:59 +08:00
+Generated: 2026-05-14 23:55:00 +08:00
 
 Upload these files to the root of chamaurise/sundaystaples-innercircle:
 - index.html
@@ -9,12 +9,18 @@ Upload these files to the root of chamaurise/sundaystaples-innercircle:
 - server.js
 - package.json
 - vercel.json
+- api/state.js
 
 Keep the existing shoe-concepts/ folder in GitHub.
 
 Recent included changes:
+- Shared Vercel state API for admin edits
 - Editable Concept Library metadata fields
 - Campaign Setup home page copy editor
 - Four-round physical focus group survey logic template
 - Survey Logic media upload and thumbnail tray
 - Mobile optimised side-by-side comparison cards
+
+Important:
+Admin edits are shared for everyone only after Vercel KV/Redis is configured with
+KV_REST_API_URL and KV_REST_API_TOKEN environment variables.
