@@ -1,397 +1,144 @@
-const config = window.SUNDAY_CIRCLE_CONFIG || {};
-const allDesigns = config.concepts || [];
-const eligibleCustomers = config.eligibleCustomers || [];
-const reviewSessions = config.reviewSessions || {};
-
+const config = window.INNER_CIRCLE_CONFIG;
 const app = document.querySelector("#app");
-const storageKey = "sunday-circle-responses";
-const sessionKey = "sunday-circle-current";
-const bracketKey = "sunday-circle-brackets";
-const founderSessionKey = "sunday-circle-founder-session";
-const imageSettingsKey = "sunday-circle-image-settings";
-const comparisonModeKey = "sunday-circle-comparison-mode";
-const groupRulesKey = "sunday-circle-group-rules";
-const researchSettingsKey = "sunday-circle-research-settings";
+const stateKey = "ss-inner-circle-state-v2";
 
-const ageRanges = ["18-24", "25-34", "35-44", "45-54", "55+"];
-const purchaseUrgencies = ["Today", "This week", "This month", "Later"];
-const purchaseBarriers = ["None", "Price", "Color", "Comfort", "Styling", "Need more photos"];
-const designDrivers = ["Shape", "Color", "Comfort", "Material", "Occasion", "Uniqueness"];
+let route = "member";
+let activeCampaignId = config.campaigns[0].id;
+let member = null;
+let participant = freshParticipant();
+let adminDraft = null;
+let adminSection = "campaign";
 
-let view = "review";
-let customer = readSavedCustomer();
-let review = freshReview();
-let accessError = "";
-let remoteState = null;
-let syncStatus = "offline";
-let syncMessage = "Local fallback active";
-let saveTimer = null;
-
-const emptyState = () => ({
-  responses: [],
-  brackets: {},
-  groupRules: {},
-  imageSettings: {},
-  researchSettings: defaultResearchSettings(),
-  comparisonMode: "off",
-  updatedAt: null,
-  audit: []
-});
-
-function defaultResearchSettings() {
+function freshParticipant() {
+  const campaign = getCampaign(activeCampaignId);
   return {
-    battle: {
-      enabled: true,
-      captureConfidence: true,
-      captureDrivers: true,
-      requireReason: false,
-      prompt: "Which design do you prefer?"
-    },
-    purchase: {
-      enabled: true,
-      captureUrgency: true,
-      captureBarrier: true,
-      capturePriceFeel: true,
-      captureOccasion: true,
-      prompt: "Which designs would make you want to purchase immediately?"
-    }
+    step: 0,
+    pairIndex: 0,
+    answers: {},
+    ranking: [...campaign.conceptIds],
+    completed: false
   };
 }
 
-function readSavedCustomer() {
-  try {
-    return JSON.parse(localStorage.getItem(sessionKey) || "null");
-  } catch (error) {
-    localStorage.removeItem(sessionKey);
-    return null;
-  }
+function getCampaign(id = activeCampaignId) {
+  const campaign = state().campaigns.find((item) => item.id === id) || state().campaigns[0];
+  return normaliseCampaign(campaign);
 }
 
-function freshReview() {
+function state() {
+  const saved = readState();
   return {
-    step: "access",
-    battleIndex: 0,
-    currentBattleId: "m1",
-    battles: [],
-    immediate: [],
-    sessionId: currentSessionId(),
-    ranking: activeDesigns().map((design) => design.id),
-    noBudget: [],
-    purchaseIntent: {},
-    comments: "",
-    usefulDetails: "",
-    consent: true,
-    completedAt: null
+    ...saved,
+    brands: config.brands,
+    concepts: [...config.concepts, ...(saved.uploadedConcepts || [])]
   };
 }
 
-function currentSessionId() {
-  if (customer?.sessionId && reviewSessions[customer.sessionId]) return customer.sessionId;
-  if (reviewSessions["pilot-5"]) return "pilot-5";
-  return Object.keys(reviewSessions)[0] || "default";
-}
-
-function currentSession() {
-  return reviewSessions[review.sessionId || currentSessionId()] || {
-    name: "Default Review",
-    designIds: allDesigns.map((design) => design.id),
-    battleCount: Math.min(10, allDesigns.length)
-  };
-}
-
-function activeDesigns() {
-  const session = reviewSessions[currentSessionId()] || currentSession();
-  const ids = session.designIds || allDesigns.map((design) => design.id);
-  return ids.map((id) => findDesign(id)).filter(Boolean);
-}
-
-function activeBattlePairs() {
-  const ids = activeDesigns().map((design) => design.id);
-  const groupPairings = getGroupBracketForCustomer();
-  if (groupPairings?.length) {
-    return normaliseBattleItems(groupPairings, ids);
-  }
-
-  const custom = getCustomBrackets()[currentSessionId()];
-  if (custom?.length) {
-    return normaliseBattleItems(custom, ids);
-  }
-
-  const pairs = [];
-  for (let i = 0; i < ids.length; i += 1) {
-    for (let j = i + 1; j < ids.length; j += 1) {
-      pairs.push([ids[i], ids[j]]);
-    }
-  }
-  const limit = currentSession().battleCount || pairs.length;
-  return pairs.slice(0, Math.min(limit, pairs.length));
-}
-
-function normaliseBattleItems(items, ids) {
-  return items
-    .map((item, index) => {
-      const pair = Array.isArray(item) ? item : item.pair;
-      if (!pair || !ids.includes(pair[0]) || !ids.includes(pair[1]) || pair[0] === pair[1]) return null;
-      return Array.isArray(item)
-        ? pair
-        : {
-            id: item.id || `m${index + 1}`,
-            pair,
-            leftNext: item.leftNext || "next",
-            rightNext: item.rightNext || "next"
-          };
-    })
-    .filter(Boolean);
-}
-
-function activeBattleNodes() {
-  return activeBattlePairs().map((item, index) => {
-    if (Array.isArray(item)) {
-      return {
-        id: `m${index + 1}`,
-        pair: item,
-        leftNext: index + 1 < activeBattlePairs().length ? `m${index + 2}` : "end",
-        rightNext: index + 1 < activeBattlePairs().length ? `m${index + 2}` : "end"
-      };
-    }
-    return item;
-  });
-}
-
-function currentBattleNode() {
-  const nodes = activeBattleNodes();
-  return nodes.find((node) => node.id === review.currentBattleId) || nodes[review.battleIndex] || nodes[0];
-}
-
-function getGroupRules() {
-  if (remoteState?.groupRules) return remoteState.groupRules;
+function readState() {
   try {
-    return JSON.parse(localStorage.getItem(groupRulesKey) || "{}");
-  } catch (error) {
-    localStorage.removeItem(groupRulesKey);
-    return {};
+    return JSON.parse(localStorage.getItem(stateKey)) || seedState();
+  } catch {
+    return seedState();
   }
 }
 
-function saveGroupRules(rules) {
-  localStorage.setItem(groupRulesKey, JSON.stringify(rules));
-  updateRemoteState({ groupRules: rules }, "group-rules-updated");
-}
-
-function getResearchSettings() {
-  const defaults = defaultResearchSettings();
-  const saved = remoteState?.researchSettings || readLocalResearchSettings();
+function seedState() {
   return {
-    battle: { ...defaults.battle, ...(saved.battle || {}) },
-    purchase: { ...defaults.purchase, ...(saved.purchase || {}) }
-  };
-}
-
-function readLocalResearchSettings() {
-  try {
-    return JSON.parse(localStorage.getItem(researchSettingsKey) || "{}");
-  } catch (error) {
-    localStorage.removeItem(researchSettingsKey);
-    return {};
-  }
-}
-
-function saveResearchSettings(settings) {
-  localStorage.setItem(researchSettingsKey, JSON.stringify(settings));
-  updateRemoteState({ researchSettings: settings }, "research-settings-updated");
-}
-
-function getGroupBracketForCustomer() {
-  if (!customer?.ageRange) return null;
-  const rule = getGroupRules()[currentSessionId()]?.[customer.ageRange];
-  return rule?.length ? rule : null;
-}
-
-function getCustomBrackets() {
-  if (remoteState?.brackets) return remoteState.brackets;
-  try {
-    return JSON.parse(localStorage.getItem(bracketKey) || "{}");
-  } catch (error) {
-    localStorage.removeItem(bracketKey);
-    return {};
-  }
-}
-
-function saveCustomBrackets(brackets) {
-  localStorage.setItem(bracketKey, JSON.stringify(brackets));
-  updateRemoteState({ brackets }, "brackets-updated");
-}
-
-function founderSessionId() {
-  const saved = localStorage.getItem(founderSessionKey);
-  if (saved && reviewSessions[saved]) return saved;
-  if (reviewSessions["all-15"]) return "all-15";
-  return Object.keys(reviewSessions)[0] || "default";
-}
-
-function sessionDesigns(sessionId) {
-  const session = reviewSessions[sessionId] || currentSession();
-  const ids = session.designIds || allDesigns.map((design) => design.id);
-  return ids.map((id) => findDesign(id)).filter(Boolean);
-}
-
-function defaultBracketForSession(sessionId) {
-  const ids = sessionDesigns(sessionId).map((design) => design.id);
-  const pairs = [];
-  for (let i = 0; i < Math.floor(ids.length / 2); i += 1) {
-    pairs.push({
-      id: `m${i + 1}`,
-      pair: [ids[i], ids[ids.length - 1 - i]],
-      leftNext: i + 1 < Math.floor(ids.length / 2) ? `m${i + 2}` : "end",
-      rightNext: i + 1 < Math.floor(ids.length / 2) ? `m${i + 2}` : "end"
-    });
-  }
-  return pairs;
-}
-
-function getResponses() {
-  if (remoteState?.responses) return remoteState.responses;
-  return JSON.parse(localStorage.getItem(storageKey) || "[]");
-}
-
-function saveResponses(responses) {
-  localStorage.setItem(storageKey, JSON.stringify(responses));
-  updateRemoteState({ responses }, "responses-updated");
-}
-
-function currentState() {
-  return {
-    ...emptyState(),
-    ...(remoteState || {}),
-    responses: getResponses(),
-    brackets: getCustomBrackets(),
-    groupRules: getGroupRules(),
-    imageSettings: getImageSettings(),
-    researchSettings: getResearchSettings(),
-    comparisonMode: comparisonModeEnabled() ? "on" : "off"
-  };
-}
-
-function updateRemoteState(patch, action) {
-  const audit = [...(remoteState?.audit || [])].slice(-50);
-  audit.push({ action, at: new Date().toISOString() });
-  remoteState = {
-    ...currentState(),
-    ...patch,
-    audit,
+    campaigns: structuredClone(config.campaigns).map(normaliseCampaign),
+    uploadedConcepts: [],
+    responses: sampleResponses(),
     updatedAt: new Date().toISOString()
   };
-  persistStateSoon();
 }
 
-function persistStateSoon() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(persistState, 300);
-}
+function normaliseCampaign(campaign) {
+  const questionIds = campaign.questions.map((question) => question.id);
+  const fallbackBlock = {
+    id: "default-block",
+    title: "Survey questions",
+    questionIds
+  };
 
-async function persistState() {
-  try {
-    const response = await fetch("/api/state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: remoteState })
-    });
-    if (!response.ok) throw new Error("Shared storage not ready");
-    syncStatus = "online";
-    syncMessage = "Shared dashboard synced";
-  } catch (error) {
-    syncStatus = "offline";
-    syncMessage = "Saved locally. Connect Vercel KV for shared storage.";
-  }
-}
-
-async function loadRemoteState() {
-  try {
-    const response = await fetch("/api/state");
-    if (!response.ok) throw new Error("Shared storage unavailable");
-    const payload = await response.json();
-    if (payload.state) {
-      remoteState = { ...emptyState(), ...payload.state };
-      syncStatus = "online";
-      syncMessage = "Shared dashboard live";
-    } else {
-      syncStatus = payload.setupRequired ? "setup" : "offline";
-      syncMessage = payload.setupRequired ? "Connect Vercel KV to collect employee data." : "Local fallback active";
-    }
-  } catch (error) {
-    syncStatus = "offline";
-    syncMessage = "Local fallback active";
-  }
-  render();
-}
-
-function findDesign(id) {
-  return allDesigns.find((design) => design.id === id);
-}
-
-function getImageSettings() {
-  if (remoteState?.imageSettings) return remoteState.imageSettings;
-  try {
-    return JSON.parse(localStorage.getItem(imageSettingsKey) || "{}");
-  } catch (error) {
-    localStorage.removeItem(imageSettingsKey);
-    return {};
-  }
-}
-
-function saveImageSettings(settings) {
-  localStorage.setItem(imageSettingsKey, JSON.stringify(settings));
-  updateRemoteState({ imageSettings: settings }, "image-settings-updated");
-}
-
-function imageSetting(designId) {
-  const saved = getImageSettings()[designId] || {};
   return {
-    x: Number(saved.x ?? 50),
-    y: Number(saved.y ?? 50),
-    zoom: Number(saved.zoom ?? 100),
-    snipX: Number(saved.snipX ?? 0),
-    snipY: Number(saved.snipY ?? 0),
-    cropLeft: Number(saved.cropLeft ?? saved.snipX ?? 8),
-    cropTop: Number(saved.cropTop ?? saved.snipY ?? 8),
-    cropWidth: Number(saved.cropWidth ?? 84),
-    cropHeight: Number(saved.cropHeight ?? 84),
-    aspect: String(saved.aspect || "1:1"),
-    description: String(saved.description || ""),
-    harmonise: Boolean(saved.harmonise)
+    schemaVersion: "survey-v1",
+    surveyDefinition: {
+      engine: "qualtrics-inspired",
+      embeddedData: [
+        { key: "brandId", value: campaign.brandId },
+        { key: "campaignId", value: campaign.id }
+      ],
+      blocks: [fallbackBlock],
+      flow: [{ type: "block", ref: fallbackBlock.id }],
+      quotas: [],
+      scoring: {
+        pairwiseWeight: 45,
+        buyingIntentWeight: 40,
+        rankingWeight: 15,
+        thresholds: { buy: 62, tweak: 42 }
+      },
+      exportFields: ["campaignId", "member.segment", "answers", "submittedAt"],
+      ...(campaign.surveyDefinition || {})
+    },
+    ...campaign,
+    questions: campaign.questions.map((question) => ({
+      required: false,
+      analyticsKey: question.id,
+      displayLogic: null,
+      validation: null,
+      ...question
+    }))
   };
 }
 
-function imageStyle(design) {
-  const setting = imageSetting(design.id);
-  const right = Math.max(0, 100 - setting.cropLeft - setting.cropWidth);
-  const bottom = Math.max(0, 100 - setting.cropTop - setting.cropHeight);
-  return `--c1:${design.c1};--c2:${design.c2};--image-x:${setting.x}%;--image-y:${setting.y}%;--image-zoom:${setting.zoom}%;--image-scale:${setting.zoom / 100};--crop-left:${setting.cropLeft}%;--crop-top:${setting.cropTop}%;--crop-width:${setting.cropWidth}%;--crop-height:${setting.cropHeight}%;--clip-top:${setting.cropTop}%;--clip-right:${right}%;--clip-bottom:${bottom}%;--clip-left:${setting.cropLeft}%;--crop-aspect:${aspectValue(setting.aspect)};`;
+function writeState(next) {
+  localStorage.setItem(stateKey, JSON.stringify({ ...next, updatedAt: new Date().toISOString() }));
 }
 
-function aspectValue(aspect) {
-  if (aspect === "4:6") return "4 / 6";
-  if (aspect === "6:4") return "6 / 4";
-  if (aspect === "4:5") return "4 / 5";
-  return "1 / 1";
+function sampleResponses() {
+  const campaignId = "fy26-factory-shortlist";
+  return [
+    response(campaignId, "VIP", [["concept-01", "concept-02", "concept-01"], ["concept-03", "concept-04", "concept-04"]], ["concept-04", "concept-01", "concept-05", "concept-08"]),
+    response(campaignId, "Friends & Family", [["concept-01", "concept-02", "concept-02"], ["concept-05", "concept-06", "concept-05"]], ["concept-02", "concept-05", "concept-04", "concept-01"]),
+    response(campaignId, "VIP", [["concept-03", "concept-04", "concept-04"], ["concept-07", "concept-08", "concept-08"]], ["concept-04", "concept-08", "concept-01", "concept-05"])
+  ];
 }
 
-function displayDescription(design) {
-  const description = imageSetting(design.id).description.trim();
-  return description || design.note;
+function response(campaignId, segment, battles, ranking) {
+  return {
+    id: crypto.randomUUID(),
+    campaignId,
+    member: { email: `${segment.toLowerCase().replaceAll(" ", "-")}@example.com`, segment },
+    answers: {
+      "battle-1": battles.map(([left, right, winner]) => ({ left, right, winner, reason: "Feels easiest to wear often.", drivers: ["Comfort", "Versatility"] })),
+      "buying-intent": Object.fromEntries(ranking.map((id, index) => [id, Math.max(3, 5 - index)])),
+      ranking,
+      colour: "Nude",
+      final: "Keep the silhouette clean and test softer linings."
+    },
+    submittedAt: new Date().toISOString()
+  };
 }
 
-function comparisonModeEnabled() {
-  return (remoteState?.comparisonMode || localStorage.getItem(comparisonModeKey)) === "on";
+function conceptsFor(campaign = getCampaign()) {
+  return campaign.conceptIds.map((id) => state().concepts.find((concept) => concept.id === id)).filter(Boolean);
+}
+
+function conceptsForQuestion(question, campaign = getCampaign()) {
+  const ids = question.module?.conceptIds?.length ? question.module.conceptIds : campaign.conceptIds;
+  return ids.map((id) => state().concepts.find((concept) => concept.id === id)).filter(Boolean);
+}
+
+function aspirationSelection(question, campaign = getCampaign()) {
+  const aspirationQuestion = surveyQuestions(campaign).find((item) => item.type === "multi-select" || item.module?.type === "aspiration-pick");
+  const selected = aspirationQuestion ? participant.answers[aspirationQuestion.id] : null;
+  return selected?.length ? selected : conceptsForQuestion(question, campaign).slice(0, 5).map((concept) => concept.id);
 }
 
 function render() {
   app.innerHTML = `
-    <div class="shell ${comparisonModeEnabled() ? "comparison-mode" : ""}">
+    <div class="shell">
       ${topbar()}
-      <main class="main">
-        ${view === "dashboard" ? dashboardScreen() : reviewScreen()}
-      </main>
+      <main>${route === "admin" ? adminView() : route === "results" ? resultsView() : memberView()}</main>
     </div>
   `;
   bindEvents();
@@ -400,1701 +147,1689 @@ function render() {
 function topbar() {
   return `
     <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark">SS</div>
-        <div>
-          <div class="brand-name">Sunday Circle</div>
-          <div class="brand-sub">Private Design Battle by Sunday Staples</div>
-        </div>
-      </div>
-      <nav class="nav" aria-label="Main view">
-        <button class="${view === "review" ? "active" : ""}" data-view="review">Member Review</button>
-        <button class="${view === "dashboard" ? "active" : ""}" data-view="dashboard">Founder Dashboard</button>
+      <button class="brand" data-route="member" aria-label="Sunday Staples Inner Circle home">
+        <span>SS</span>
+        <strong>Inner Circle</strong>
+      </button>
+      <nav>
+        ${navButton("member", "Preview")}
+        ${navButton("admin", "Admin")}
+        ${navButton("results", "Results")}
       </nav>
     </header>
   `;
 }
 
-function reviewScreen() {
-  if (!customer || review.step === "access") return accessScreen();
-  if (review.step === "battle" && !currentBattleNode()) review.step = "immediate";
-  if (review.step === "battle") return battleScreen();
-  if (review.step === "immediate") return immediateScreen();
-  if (review.step === "purchaseDiagnostic") return purchaseDiagnosticScreen();
-  if (review.step === "ranking") return rankingScreen();
-  if (review.step === "nobudget") return noBudgetScreen();
-  if (review.step === "final") return finalFeedbackScreen();
-  return completeScreen();
+function navButton(name, label) {
+  return `<button class="${route === name ? "active" : ""}" data-route="${name}">${label}</button>`;
 }
 
-function accessScreen() {
+function memberView() {
+  const campaign = getCampaign();
+  const questions = surveyQuestions(campaign);
+  const question = questions[participant.step];
+  if (!member) return accessView(campaign);
+  if (participant.completed) return completeView(campaign);
+  if (!question) return completeView(campaign);
+  if (question.type === "intro") return introView(question, campaign);
+  if (question.type === "pairwise") return pairwiseView(question, campaign);
+  if (question.type === "rating") return ratingView(question, campaign);
+  if (question.type === "ranking") return rankingView(question, campaign);
+  if (question.type === "multi-select") return multiSelectView(question, campaign);
+  if (question.type === "reason-pool") return reasonPoolView(question, campaign);
+  if (question.type === "choice") return choiceView(question);
+  return textView(question);
+}
+
+function accessView(campaign) {
   return `
-    <section class="hero screen">
-      <div>
-        <div class="eyebrow">Invite-only preview</div>
-        <h1>Sunday Circle</h1>
-        <p class="lede">A private design council for friends and top-tier Sunday Staples customers. Preview upcoming shoe concepts, vote in design battles, and earn Sunday Points for thoughtful feedback.</p>
-        <div class="prestige-note">Invitation only - comfort-led design - private customer influence</div>
-        <div class="member-strip">
-          <div class="stat"><strong>15</strong><span>shoe concepts ready</span></div>
-          <div class="stat"><strong>Custom</strong><span>views by customer</span></div>
-          <div class="stat"><strong>150</strong><span>possible points</span></div>
-          <div class="stat"><strong>5 min</strong><span>target time</span></div>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Invite-only Sunday Perk</p>
+        <h1>Shape what Sunday Staples orders next.</h1>
+        <p class="lede">A mobile focus room for early factory concepts, pairwise battles, ranking, buying intent, and loyalty rewards.</p>
+        <div class="metric-strip">
+          <span><strong>${campaign.conceptIds.length}</strong> concepts</span>
+          <span><strong>${campaign.questions.length - 1}</strong> prompts</span>
+          <span><strong>${campaign.reward}</strong></span>
         </div>
       </div>
-      <form class="access-panel form-grid" data-action="access">
-        <div>
-          <div class="eyebrow">Private access</div>
-          <h2>Enter with your Sunday Staples email</h2>
-          <p class="hint">For this local pilot, try maurice@sundaystaples.com, vip@sundaystaples.com, or friend@sundaystaples.com.</p>
-        </div>
-        <div class="field">
-          <label for="email">Sunday Staples customer email</label>
-          <input id="email" name="email" type="email" placeholder="you@example.com" required />
-        </div>
-        <div class="field">
-          <label for="ageRange">Age range</label>
-          <select id="ageRange" name="ageRange" required>
-            <option value="">Select age range</option>
-            ${ageRanges.map((range) => `<option value="${range}">${range}</option>`).join("")}
+      <form class="panel access-panel" data-action="login">
+        <p class="eyebrow">Private access</p>
+        <h2>${campaign.title}</h2>
+        <label>Email<input name="email" type="email" value="vip@sundaystaples.com" required /></label>
+        <label>Age range
+          <select name="ageRange">
+            <option>18-24</option><option selected>25-34</option><option>35-44</option><option>45-54</option><option>55+</option>
           </select>
-        </div>
-        <button class="primary-button" type="submit">Start Design Battle</button>
-        ${accessError ? `<p class="error">${accessError}</p>` : ""}
-        <p class="hint">Your votes stay anonymous in the review experience. Your email is used only to confirm access and prepare Sunday Points rewards.</p>
-        <div class="hero-gallery">
-          ${allDesigns.slice(0, 4).map((design) => `<img style="${imageStyle(design)}" src="${design.image}" alt="${design.name}" />`).join("")}
-        </div>
+        </label>
+        <button class="primary">Enter preview</button>
+        <p class="hint">Pilot emails: maurice@sundaystaples.com, vip@sundaystaples.com, friend@sundaystaples.com</p>
       </form>
     </section>
   `;
 }
 
-function battleScreen() {
-  const settings = getResearchSettings().battle;
-  const battleNodes = activeBattleNodes();
-  const node = currentBattleNode();
-  const pair = node.pair;
-  const left = findDesign(pair[0]);
-  const right = findDesign(pair[1]);
-  const progress = Math.round((review.battles.length / battleNodes.length) * 100);
+function introView(question, campaign) {
   return `
-    <section class="screen">
-      ${memberSummary()}
-      <div class="eyebrow">Battle ${review.battles.length + 1} of ${battleNodes.length}</div>
-      <h2>${settings.prompt}</h2>
-      <p class="lede">Choose with your instinct first. The goal is to capture real taste, not overthink the answer.</p>
-      <div class="progress" style="--progress:${progress}%"><span></span></div>
-      <div class="battle-grid">
-        ${designCard(left, "Choose this design", "battle-choice")}
-        ${designCard(right, "Choose this design", "battle-choice")}
-      </div>
-      ${settings.captureConfidence ? confidenceQuestion() : ""}
-      ${settings.captureDrivers ? driverQuestion() : ""}
-      <div class="field">
-        <label for="battleWhy">Why did that design win for you?</label>
-        <textarea id="battleWhy" ${settings.requireReason ? "required" : ""} placeholder="Shape, color, comfort, outfit potential, uniqueness..."></textarea>
-      </div>
-    </section>
-  `;
-}
-
-function immediateScreen() {
-  const purchase = getResearchSettings().purchase;
-  return multiSelectScreen({
-    stepName: "Purchase Intent",
-    title: purchase.prompt,
-    body: "This separates general liking from actual buying desire.",
-    selected: review.immediate,
-    action: "toggle-immediate",
-    next: purchase.enabled ? "purchaseDiagnostic" : "ranking",
-    nextLabel: purchase.enabled ? "Add purchase detail" : "Rank all designs"
-  });
-}
-
-function confidenceQuestion() {
-  return `
-    <div class="field compact-question">
-      <label>How confident are you in this choice?</label>
-      <div class="chip-row" data-confidence-group>
-        ${["Instant yes", "Quite sure", "Close call"].map((label, index) => `
-          <label class="choice-chip">
-            <input type="radio" name="battleConfidence" value="${label}" ${index === 1 ? "checked" : ""} />
-            <span>${label}</span>
-          </label>
-        `).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function driverQuestion() {
-  return `
-    <div class="field compact-question">
-      <label>What mainly drove your choice?</label>
-      <div class="chip-row">
-        ${designDrivers.map((driver) => `
-          <label class="choice-chip">
-            <input type="checkbox" name="battleDrivers" value="${driver}" />
-            <span>${driver}</span>
-          </label>
-        `).join("")}
-      </div>
-    </div>
-  `;
-}
-
-function purchaseDiagnosticScreen() {
-  const settings = getResearchSettings().purchase;
-  const designIds = review.immediate.length ? review.immediate : activeDesigns().slice(0, 5).map((design) => design.id);
-  return `
-    <section class="screen">
-      ${memberSummary()}
-      <div class="eyebrow">Purchase Intent Studio</div>
-      <h2>What would turn interest into a purchase?</h2>
-      <p class="lede">A short commercial read on the designs that created buying desire.</p>
-      <div class="purchase-diagnostic-list">
-        ${designIds.map((id) => purchaseDiagnosticRow(findDesign(id), settings)).join("")}
-      </div>
-      <div class="button-row" style="margin-top:18px">
-        <button class="ghost-button" data-step="immediate">Back</button>
-        <button class="primary-button" data-action="purchase-next">Rank all designs</button>
-      </div>
-    </section>
-  `;
-}
-
-function purchaseDiagnosticRow(design, settings) {
-  if (!design) return "";
-  const saved = review.purchaseIntent[design.id] || {};
-  return `
-    <article class="purchase-diagnostic-row" data-purchase-row="${design.id}">
-      <img style="${imageStyle(design)}" src="${design.image}" alt="${design.name}" />
+    <section class="screen two-col">
       <div>
-        <strong>${design.name}</strong>
-        <span class="hint">${displayDescription(design)}</span>
+        <p class="eyebrow">${question.eyebrow}</p>
+        <h1>${question.title}</h1>
+        <p class="lede">${question.body}</p>
+        <button class="primary" data-next>Start voting</button>
       </div>
-      ${settings.captureUrgency ? selectField("urgency", "Buy timing", purchaseUrgencies, saved.urgency || "This week") : ""}
-      ${settings.captureBarrier ? selectField("barrier", "Main blocker", purchaseBarriers, saved.barrier || "None") : ""}
-      ${settings.capturePriceFeel ? selectField("priceFeel", "Price feel", ["Good value", "Acceptable", "Slightly high", "Too high"], saved.priceFeel || "Acceptable") : ""}
-      ${settings.captureOccasion ? `
-        <label>
-          Occasion
-          <input data-purchase-field="occasion" maxlength="32" value="${escapeAttribute(saved.occasion || "")}" placeholder="Work, weekend, travel..." />
-        </label>
-      ` : ""}
-    </article>
-  `;
-}
-
-function selectField(field, label, options, selected) {
-  return `
-    <label>
-      ${label}
-      <select data-purchase-field="${field}">
-        ${options.map((option) => `<option value="${option}" ${option === selected ? "selected" : ""}>${option}</option>`).join("")}
-      </select>
-    </label>
-  `;
-}
-
-function rankingScreen() {
-  return `
-    <section class="screen">
-      ${memberSummary()}
-      <div class="eyebrow">Full ranking</div>
-      <h2>Rank these designs from most favourite to least favourite</h2>
-      <p class="lede">Use the arrows to put your strongest favourite at the top.</p>
-      <div class="rank-list">
-        ${review.ranking.map((id, index) => rankItem(findDesign(id), index)).join("")}
-      </div>
-      <div class="button-row" style="margin-top:18px">
-        <button class="ghost-button" data-step="${getResearchSettings().purchase.enabled ? "purchaseDiagnostic" : "immediate"}">Back</button>
-        <button class="primary-button" data-step="nobudget">Continue</button>
+      <div class="concept-preview">
+        ${conceptsFor(campaign).slice(0, 4).map(conceptTile).join("")}
       </div>
     </section>
   `;
 }
 
-function noBudgetScreen() {
-  return multiSelectScreen({
-    stepName: "No-budget desire",
-    title: "If money was not an issue, which designs would you certainly purchase?",
-    body: "This shows pure desire without price sensitivity getting in the way.",
-    selected: review.noBudget,
-    action: "toggle-nobudget",
-    next: "final",
-    nextLabel: "Final feedback"
+function pairwiseView(question) {
+  const pair = question.pairs[participant.pairIndex];
+  if (!pair) {
+    return `
+      <section class="screen narrow">
+        ${progress()}
+        <p class="eyebrow">Side-by-side battle</p>
+        <h2>Add at least two concepts to run this comparison.</h2>
+        <p class="lede">This module needs two or more selected shoe concepts. Continue to the next module for now.</p>
+        <button class="primary" data-next>Continue</button>
+      </section>
+    `;
+  }
+  const [left, right] = pair.map(findConcept);
+  return `
+    <section class="screen">
+      ${progress()}
+      <p class="eyebrow">Pairwise platform ${participant.pairIndex + 1} of ${question.pairs.length}</p>
+      <h2>${question.prompt}</h2>
+      <div class="battle-grid">
+        ${productCard(left, "Choose left")}
+        ${productCard(right, "Choose right")}
+      </div>
+      <div class="panel compact">
+        <label>Why did this win?<textarea id="pairReason" placeholder="Comfort, silhouette, colour, occasion, price confidence..."></textarea></label>
+        <div class="chips">
+          ${["Comfort", "Versatility", "Colour", "Shape", "Premium feel", "Easy to style"].map((driver) => `<label><input type="checkbox" value="${driver}" />${driver}</label>`).join("")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function ratingView(question, campaign) {
+  const saved = participant.answers[question.id] || {};
+  const concepts = conceptsForQuestion(question, campaign);
+  return `
+    <section class="screen">
+      ${progress()}
+      <p class="eyebrow">Buying intent</p>
+      <h2>${question.prompt}</h2>
+      <div class="rating-list">
+        ${concepts.map((concept) => `
+          <article class="rating-row" data-rating="${concept.id}">
+            ${mediaElement(concept)}
+            <div><strong>${concept.name}</strong><span>${concept.category} · ${concept.colorway}</span></div>
+            <select>
+              ${question.scale.map((label, index) => `<option value="${index + 1}" ${Number(saved[concept.id] || 3) === index + 1 ? "selected" : ""}>${index + 1} - ${label}</option>`).join("")}
+            </select>
+          </article>
+        `).join("")}
+      </div>
+      <button class="primary" data-save-rating>Continue</button>
+    </section>
+  `;
+}
+
+function rankingView(question, campaign) {
+  const validIds = conceptsForQuestion(question, campaign).map((concept) => concept.id);
+  const ranking = participant.ranking.filter((id) => validIds.includes(id));
+  validIds.forEach((id) => {
+    if (!ranking.includes(id)) ranking.push(id);
   });
-}
-
-function finalFeedbackScreen() {
+  participant.ranking = ranking;
   return `
     <section class="screen">
-      ${memberSummary()}
-      <div class="eyebrow">Final thoughts</div>
-      <h2>Help us make the winning design better</h2>
-      <div class="question-block">
-        <div class="field">
-          <label for="comments">What should Sunday Staples make first, and why?</label>
-          <textarea id="comments" placeholder="Tell us what you would genuinely want to see launched.">${review.comments}</textarea>
-        </div>
-        <div class="field">
-          <label for="usefulDetails">Any changes to color, heel height, material, comfort, shape, or styling?</label>
-          <textarea id="usefulDetails" placeholder="Small design details are especially useful.">${review.usefulDetails}</textarea>
-        </div>
-        <label class="hint">
-          <input type="checkbox" data-action="consent" ${review.consent ? "checked" : ""} />
-          Sunday Staples may use my feedback anonymously for product decisions and internal reports.
-        </label>
-        <div class="button-row">
-          <button class="ghost-button" data-step="nobudget">Back</button>
-          <button class="primary-button" data-action="complete">Complete Review</button>
-        </div>
+      ${progress()}
+      <p class="eyebrow">Peer-to-peer ranking</p>
+      <h2>${question.prompt}</h2>
+      <div class="rank-list">
+        ${participant.ranking.map((id, index) => rankRow(findConcept(id), index)).join("")}
+      </div>
+      <button class="primary" data-next>Continue</button>
+    </section>
+  `;
+}
+
+function choiceView(question) {
+  const saved = participant.answers[question.id];
+  return `
+    <section class="screen narrow">
+      ${progress()}
+      <p class="eyebrow">Colour direction</p>
+      <h2>${question.prompt}</h2>
+      <div class="choice-grid">
+        ${question.options.map((option) => `<button class="${saved === option ? "selected" : ""}" data-choice="${option}">${option}</button>`).join("")}
       </div>
     </section>
   `;
 }
 
-function completeScreen() {
-  const points = calculatePoints(review);
+function multiSelectView(question, campaign) {
+  const selected = participant.answers[question.id] || [];
+  const max = question.maxSelections || question.module?.maxSelections || 5;
   return `
     <section class="screen">
-      ${memberSummary()}
-      <div class="panel">
-        <div class="eyebrow">Review complete</div>
-        <h2>Thank you for shaping the next Sunday Staples design.</h2>
-        <p class="lede">Your influence has been recorded anonymously. Your Sunday Points reward is ready for founder approval in this pilot version.</p>
-        <div class="member-strip">
-          <div class="stat"><strong>${points}</strong><span>pending Sunday Points</span></div>
-          <div class="stat"><strong>${review.immediate.length}</strong><span>buy-now picks</span></div>
-          <div class="stat"><strong>${review.noBudget.length}</strong><span>no-budget picks</span></div>
-          <div class="stat"><strong>${review.ranking[0] ? findDesign(review.ranking[0]).name : "-"}</strong><span>top-ranked design</span></div>
-        </div>
-        <div class="button-row">
-          <button class="primary-button" data-view="dashboard">View Founder Dashboard</button>
-          <button class="ghost-button" data-action="new-review">Start another test review</button>
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-function multiSelectScreen(config) {
-  return `
-    <section class="screen">
-      ${memberSummary()}
-      <div class="eyebrow">${config.stepName}</div>
-      <h2>${config.title}</h2>
-      <p class="lede">${config.body}</p>
+      ${progress()}
+      <p class="eyebrow">No-budget aspiration</p>
+      <h2>${question.prompt}</h2>
+      <p class="lede">Choose up to ${max}. This captures aspiration separately from price sensitivity.</p>
       <div class="option-grid">
-        ${activeDesigns().map((design) => miniDesign(design, config.selected.includes(design.id), config.action)).join("")}
+        ${conceptsForQuestion(question, campaign).map((concept) => `
+          <button class="mini-design ${selected.includes(concept.id) ? "selected" : ""}" data-multi-pick="${concept.id}" type="button">
+            ${mediaElement(concept)}
+            <strong>${concept.name}</strong>
+            <span>${concept.category}</span>
+          </button>
+        `).join("")}
       </div>
-      <div class="button-row" style="margin-top:18px">
-        <button class="ghost-button" data-step="${config.stepName === "Purchase Intent" ? "battle" : "ranking"}">Back</button>
-        <button class="primary-button" data-step="${config.next}">${config.nextLabel}</button>
+      <div class="button-row">
+        <span class="hint">${selected.length} of ${max} selected</span>
+        <button class="primary" data-next>Continue</button>
       </div>
     </section>
   `;
 }
 
-function memberSummary() {
+function reasonPoolView(question, campaign) {
+  const sourceIds = aspirationSelection(question, campaign);
+  const reasons = question.reasons || question.module?.reasons || defaultReasonPool();
+  const saved = participant.answers[question.id] || {};
   return `
-    <div class="member-strip">
-      <div class="stat"><strong>${customer.name}</strong><span>${customer.tier}</span></div>
-      <div class="stat"><strong>${customer.currentPoints.toLocaleString()}</strong><span>current Sunday Points</span></div>
-      <div class="stat"><strong>${customer.smileId}</strong><span>linked Smile.io account</span></div>
-      <div class="stat"><strong>${calculatePoints(review)}</strong><span>pending points</span></div>
-    </div>
+    <section class="screen">
+      ${progress()}
+      <p class="eyebrow">Reason diagnosis</p>
+      <h2>${question.prompt}</h2>
+      <p class="lede">Choose the reasons that best explain why each top sample stands out.</p>
+      <div class="reason-list">
+        ${sourceIds.map((id) => reasonCard(findConcept(id), reasons, saved[id] || [])).join("")}
+      </div>
+      <button class="primary" data-save-reasons>Continue</button>
+    </section>
   `;
 }
 
-function designCard(design, buttonLabel, action) {
+function reasonCard(concept, reasons, selected) {
+  if (!concept) return "";
   return `
-    <article class="design-card">
-      ${design.image ? `<img class="shoe-image" style="${imageStyle(design)}" src="${design.image}" alt="${design.name}" onerror="this.replaceWith(this.nextElementSibling)" />` : ""}
-      <div class="shoe-art" style="${imageStyle(design)}">${shoeSvg(design)}</div>
-      <div class="design-body">
-        <h3>${design.name}</h3>
-        <p class="hint">${displayDescription(design)}</p>
-        <div class="design-meta">
-          <span class="pill">${design.style}</span>
-          <span class="pill">${design.material}</span>
-          <span class="pill">${design.price}</span>
+    <article class="reason-card" data-reason-concept="${concept.id}">
+      ${mediaElement(concept)}
+      <div>
+        <h3>${concept.name}</h3>
+        <div class="reason-chip-grid">
+          ${reasons.map((reason) => `
+            <label class="reason-chip">
+              <input type="checkbox" value="${escapeAttr(reason)}" ${selected.includes(reason) ? "checked" : ""} />
+              <span>${reason}</span>
+            </label>
+          `).join("")}
         </div>
-        <button class="choice-button" data-action="${action}" data-id="${design.id}">${buttonLabel}</button>
       </div>
     </article>
   `;
 }
 
-function miniDesign(design, selected, action) {
-  const background = design.image ? `background-image: url('${design.image}')` : "";
-  const placeholder = design.image ? "" : "placeholder";
+function textView(question) {
+  const isLast = isLastQuestion();
   return `
-    <button class="mini-design ${selected ? "selected" : ""}" data-action="${action}" data-id="${design.id}">
-      <span class="mini-swatch ${placeholder}" style="${imageStyle(design)}${background}"></span>
-      <strong>${design.name}</strong>
-      <span class="hint">${selected ? "Selected" : displayDescription(design)}</span>
+    <section class="screen narrow">
+      ${progress()}
+      <p class="eyebrow">Final read</p>
+      <h2>${question.prompt}</h2>
+      <textarea class="large-text" id="finalText" placeholder="Tell Cherri what to buy, tweak, or reject.">${participant.answers[question.id] || ""}</textarea>
+      <button class="primary" ${isLast ? "data-complete" : "data-save-text"}>${isLast ? "Submit feedback" : "Continue"}</button>
+    </section>
+  `;
+}
+
+function completeView(campaign) {
+  return `
+    <section class="screen narrow success-card">
+      <p class="eyebrow">Feedback received</p>
+      <h1>Thank you, ${member.name}.</h1>
+      <p class="lede">Your preview has been added to Cherri's decision dashboard. ${campaign.reward} will be marked for your Sunday Staples account.</p>
+      <button class="primary" data-route="results">View results dashboard</button>
+    </section>
+  `;
+}
+
+function adminView() {
+  const s = state();
+  const campaign = getCampaign();
+  adminDraft ||= structuredClone(campaign);
+  return `
+    <section class="screen">
+      <div class="page-head">
+        <div>
+          <p class="eyebrow">Cherri's research builder</p>
+          <h1>Build a focus group without code.</h1>
+          <p class="lede">Upload or reference media, choose question types, preview the customer journey, and keep the data model ready for future brands.</p>
+        </div>
+        <button class="primary" data-save-campaign>Save campaign</button>
+      </div>
+      <div class="admin-workspace">
+        <aside class="admin-sidebar" aria-label="Admin sections">
+          ${adminTab("campaign", "Campaign Setup", "Audience, reward, status")}
+          ${adminTab("survey", "Survey Logic", "Blocks, flow, questions")}
+          ${adminTab("concepts", "Concept Library", "Select designs")}
+          ${adminTab("uploads", "Upload Intake", "Add new media")}
+          ${adminTab("publish", "Preview & Publish", "Readiness check")}
+        </aside>
+        <form class="panel form-stack admin-panel" data-admin-form>
+          ${adminSectionView(s)}
+        </form>
+      </div>
+    </section>
+  `;
+}
+
+function adminTab(id, title, subtitle) {
+  return `
+    <button class="${adminSection === id ? "active" : ""}" data-admin-section="${id}" type="button">
+      <strong>${title}</strong>
+      <span>${subtitle}</span>
     </button>
   `;
 }
 
-function rankItem(design, index) {
+function adminSectionView(s) {
+  if (adminSection === "survey") return surveyAdminSection();
+  if (adminSection === "concepts") return conceptsAdminSection(s);
+  if (adminSection === "uploads") return uploadsAdminSection();
+  if (adminSection === "publish") return publishAdminSection();
+  return campaignAdminSection();
+}
+
+function campaignAdminSection() {
   return `
-    <div class="rank-item">
-      <div class="rank-number">${index + 1}</div>
-      <div>
-        <strong>${design.name}</strong>
-        <div class="hint">${design.style} - ${design.price}</div>
-      </div>
-      <div class="rank-controls">
-        <button class="small-button" data-action="rank-up" data-index="${index}" aria-label="Move ${design.name} up">Up</button>
-        <button class="small-button" data-action="rank-down" data-index="${index}" aria-label="Move ${design.name} down">Down</button>
-      </div>
+    <div class="section-kicker">Campaign Setup</div>
+    <h2>Define the research room.</h2>
+    <p class="hint">This is the high-level shell customers and internal teams will see around the survey.</p>
+    <label>Campaign title<input name="title" value="${escapeAttr(adminDraft.title)}" /></label>
+    <label>Audience<input name="audience" value="${escapeAttr(adminDraft.audience)}" /></label>
+    <label>Reward<input name="reward" value="${escapeAttr(adminDraft.reward)}" /></label>
+    <label>Status
+      <select name="status"><option ${adminDraft.status === "draft" ? "selected" : ""}>draft</option><option ${adminDraft.status === "live" ? "selected" : ""}>live</option></select>
+    </label>
+  `;
+}
+
+function surveyAdminSection() {
+  const uploaded = state().concepts.filter((concept) => concept.id.startsWith("upload-") || concept.category === "Uploaded Concept");
+  const modules = researchModules(adminDraft);
+  return `
+    <div class="section-kicker">Survey Logic</div>
+    <h2>Build the digital focus group.</h2>
+    <p class="hint">Start with what happens in person: inspect samples, compare two platforms, explain buying intent, rank finalists, then decide buy, tweak, reject, or retest.</p>
+
+    <div class="research-builder">
+      <section class="blueprint-panel">
+        ${researchGoal("Round 1", "Champion battle: two platforms, one winner stays, weaker samples rotate.")}
+        ${researchGoal("Round 2", "Set ranking: customers rank sets of five shoes from weakest to strongest.")}
+        ${researchGoal("Round 3", "No-budget aspiration: customers choose up to five dream picks from the full suite.")}
+        ${researchGoal("Round 4", "Reason diagnosis: customers justify top selections from a structured reason pool.")}
+      </section>
+      ${researchQualityPanel()}
+
+      <section class="media-intake-panel">
+        <div class="logic-head">
+          <div>
+            <h3>Survey Media</h3>
+            <p class="hint">Upload shoe photos, GIFs, or videos while building the survey. New files appear as thumbnails and are attached to this campaign.</p>
+          </div>
+        </div>
+        ${uploadDropzone("logicConceptUpload")}
+        <div class="uploaded-strip">
+          ${uploaded.length ? uploaded.map(uploadedMediaThumb).join("") : `<p class="empty-note">No new media uploaded yet.</p>`}
+        </div>
+      </section>
+
+      <section class="module-palette">
+        <div class="logic-head">
+          <div>
+            <h3>Add Research Module</h3>
+            <p class="hint">Choose the question patterns Sunday Staples actually needs. The system handles blocks and flow for you.</p>
+          </div>
+        </div>
+        <div class="module-grid">
+          <button type="button" class="module-option recommended" data-load-physical-template>
+            <strong>Use 4-round focus group template</strong>
+            <span>Builds the complete physical customer journey with best-practice wording.</span>
+          </button>
+          ${moduleCatalog().map((module) => `
+            <button type="button" class="module-option" data-add-module="${module.id}">
+              <strong>${module.label}</strong>
+              <span>${module.description}</span>
+            </button>
+          `).join("")}
+        </div>
+      </section>
+
+      <section>
+        <div class="logic-head">
+          <div>
+            <h3>Research Path</h3>
+            <p class="hint">This is the customer journey. Keep it short enough to feel premium, but complete enough to answer Cherri's ordering questions.</p>
+          </div>
+        </div>
+        ${flowVisualisation(adminDraft)}
+        <div class="module-list">
+          ${modules.map(moduleEditor).join("")}
+        </div>
+      </section>
+
+      <section class="rules-panel">
+        <div>
+          <h3>Rules</h3>
+          <div class="rules-grid">
+            <label class="switch-inline"><input data-rule-field="randomiseConcepts" type="checkbox" ${adminDraft.surveyDefinition.rules?.randomiseConcepts ? "checked" : ""} />Randomise concept order</label>
+            <label class="switch-inline"><input data-rule-field="balanceLeftRight" type="checkbox" ${adminDraft.surveyDefinition.rules?.balanceLeftRight !== false ? "checked" : ""} />Balance left/right platforms</label>
+            <label class="switch-inline"><input data-rule-field="requireReasons" type="checkbox" ${adminDraft.surveyDefinition.rules?.requireReasons ? "checked" : ""} />Require reasons on comparisons</label>
+            <label>Target segment<input data-rule-field="targetSegment" value="${escapeAttr(adminDraft.surveyDefinition.rules?.targetSegment || "VIP customers in Singapore")}" /></label>
+            <label>Max concepts per session<input data-rule-field="maxConcepts" type="number" min="2" value="${adminDraft.surveyDefinition.rules?.maxConcepts || adminDraft.conceptIds.length}" /></label>
+            <label>Reward trigger
+              <select data-rule-field="rewardTrigger">
+                <option value="completion" ${adminDraft.surveyDefinition.rules?.rewardTrigger !== "approval" ? "selected" : ""}>On completion</option>
+                <option value="approval" ${adminDraft.surveyDefinition.rules?.rewardTrigger === "approval" ? "selected" : ""}>After founder approval</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div>
+          <h3>Decision Weights</h3>
+          <div class="scoring-grid">
+            <label>Pairwise<input data-score-field="pairwiseWeight" type="number" min="0" max="100" value="${adminDraft.surveyDefinition.scoring.pairwiseWeight}" /></label>
+            <label>Buying intent<input data-score-field="buyingIntentWeight" type="number" min="0" max="100" value="${adminDraft.surveyDefinition.scoring.buyingIntentWeight}" /></label>
+            <label>Ranking<input data-score-field="rankingWeight" type="number" min="0" max="100" value="${adminDraft.surveyDefinition.scoring.rankingWeight}" /></label>
+            <label>Buy threshold<input data-score-field="buy" type="number" min="0" max="100" value="${adminDraft.surveyDefinition.scoring.thresholds.buy}" /></label>
+            <label>Tweak threshold<input data-score-field="tweak" type="number" min="0" max="100" value="${adminDraft.surveyDefinition.scoring.thresholds.tweak}" /></label>
+          </div>
+        </div>
+      </section>
+
+      ${surveyModelSummary(adminDraft)}
     </div>
   `;
 }
 
-function shoeSvg(design) {
-  return `
-    <svg class="shoe-svg" viewBox="0 0 520 260" role="img" aria-label="${design.name} concept art">
-      <path d="M58 160 C120 112 195 94 298 112 C353 121 398 133 471 153 C485 157 492 172 484 186 C473 205 438 215 373 212 L101 200 C62 198 40 184 58 160 Z" fill="#fff8ef"/>
-      <path d="M95 172 C170 142 275 142 392 168" fill="none" stroke="#202020" stroke-width="10" stroke-linecap="round"/>
-      <path d="M298 112 C309 83 339 66 379 62 C388 61 394 69 389 77 C374 101 367 124 377 146" fill="none" stroke="#202020" stroke-width="14" stroke-linecap="round"/>
-      <path d="M388 170 L425 215" stroke="#202020" stroke-width="12" stroke-linecap="round"/>
-      <path d="M128 196 C214 212 326 216 438 204" fill="none" stroke="#202020" stroke-width="13" stroke-linecap="round"/>
-      <circle cx="196" cy="149" r="10" fill="${design.c2}"/>
-      <circle cx="240" cy="143" r="10" fill="${design.c2}"/>
-    </svg>
-  `;
+function researchGoal(title, body) {
+  return `<article><strong>${title}</strong><span>${body}</span></article>`;
 }
 
-function dashboardScreen() {
-  const responses = getResponses();
-  const metrics = buildMetrics(responses);
+function researchQualityPanel() {
   return `
-    <section class="screen">
-      <div class="eyebrow">Founder view</div>
-      <h2>Design Battle Results</h2>
-      <p class="lede">This dashboard shows the first closed-loop signals: preference, buy-now intent, pure desire, ranking, and pending Sunday Points rewards.</p>
-      ${syncBanner()}
-      ${deploymentOpsPanel()}
-      ${responses.length ? dashboardContent(responses, metrics) : emptyDashboard()}
-      ${founderControls()}
+    <section class="quality-panel">
+      <div>
+        <h3>Research quality assessment</h3>
+        <p class="hint">The physical flow is strong because it captures comparative choice, forced trade-offs, aspiration, and reasons. The improvements below make the data cleaner and less biased.</p>
+      </div>
+      <div class="quality-grid">
+        ${qualityItem("Keep", "Head-to-head voting", "Excellent for exposing relative preference. Add balanced left/right placement and enough rotations so early shoes do not get unfair advantage.")}
+        ${qualityItem("Improve", "Rank sets of five", "Use clear anchors: 5 = strongest purchase interest, 1 = weakest. Randomise set composition where possible.")}
+        ${qualityItem("Keep", "No-budget aspiration", "Great for separating desire from affordability. Label it explicitly as aspiration, not purchase intent.")}
+        ${qualityItem("Improve", "Reason pool", "Use multi-select reasons plus optional short text. Avoid leading reasons that make every shoe sound positive.")}
+      </div>
     </section>
   `;
 }
 
-function deploymentOpsPanel() {
+function qualityItem(tag, title, body) {
+  return `<article><span>${tag}</span><strong>${title}</strong><p>${body}</p></article>`;
+}
+
+function flowVisualisation(campaign) {
+  const blocks = campaign.surveyDefinition.blocks || [];
+  const flow = campaign.surveyDefinition.flow || [];
+  const questionsById = Object.fromEntries(campaign.questions.map((question) => [question.id, question]));
   return `
-    <div class="panel ops-panel">
-      <div class="panel-title">
+    <section class="flow-map" aria-label="Survey flow map">
+      <div class="flow-primer">
         <div>
-          <div class="eyebrow">Deployment workflow</div>
-          <h3>Online Pilot Readiness</h3>
-          <p class="hint">GitHub remains the source of truth. Vercel redeploys when changes are pushed. Connect Vercel KV to turn this into a shared employee pilot.</p>
+          <strong>Block</strong>
+          <span>A block is a grouped moment in the focus group, like welcome, comparison, intent, or final ranking.</span>
         </div>
-      </div>
-      <div class="ops-grid">
-        <div><strong>Frontend</strong><span>Static app on Vercel</span></div>
-        <div><strong>Shared storage</strong><span>${syncStatus === "online" ? "Connected" : "Needs Vercel KV env vars"}</span></div>
-        <div><strong>Founder data</strong><span>Responses, rewards, brackets, image settings</span></div>
-        <div><strong>Fallback</strong><span>Browser local storage remains available</span></div>
-      </div>
-    </div>
-  `;
-}
-
-function syncBanner() {
-  return `
-    <div class="sync-banner ${syncStatus}">
-      <strong>${syncStatus === "online" ? "Shared storage connected" : syncStatus === "setup" ? "Shared storage setup needed" : "Local fallback mode"}</strong>
-      <span>${syncMessage}</span>
-    </div>
-  `;
-}
-
-function emptyDashboard() {
-  return `
-    <div class="empty">
-      No completed reviews yet. Start with the Member Review tab, use one of the pilot emails, and complete the design battle.
-    </div>
-    ${analyticsStudio([], buildMetrics([]))}
-    ${rewardConsole([])}
-    ${conceptLibrary(allDesigns)}
-  `;
-}
-
-function dashboardContent(responses, metrics) {
-  const top = metrics[0];
-  return `
-    <div class="member-strip">
-      <div class="stat"><strong>${responses.length}</strong><span>completed reviews</span></div>
-      <div class="stat"><strong>${top ? top.name : "-"}</strong><span>current winner</span></div>
-      <div class="stat"><strong>${responses.reduce((sum, item) => sum + item.points, 0)}</strong><span>pending points</span></div>
-      <div class="stat"><strong>${responses.filter((item) => item.consent).length}</strong><span>anonymous feedback consents</span></div>
-    </div>
-    <div class="dashboard-grid">
-      <div class="panel">
-        <h3>Product Signals</h3>
-        <div class="results-list">
-          ${metrics.map((item) => resultRow(item)).join("")}
-        </div>
-      </div>
-      <div class="panel">
-        <h3>AI-style Summary</h3>
-        ${summary(metrics, responses)}
-        <div class="button-row" style="margin-top:18px">
-          <button class="primary-button" data-action="export">Export feedback JSON</button>
-          <button class="ghost-button" data-action="reset-data">Clear pilot data</button>
-        </div>
-      </div>
-    </div>
-    ${analyticsStudio(responses, metrics)}
-    ${rewardConsole(responses)}
-    ${conceptLibrary(metrics.map((item) => findDesign(item.id)).filter(Boolean))}
-  `;
-}
-
-function analyticsStudio(responses, metrics) {
-  const completed = responses.length;
-  const buyNowLeader = [...metrics].sort((a, b) => b.immediate - a.immediate)[0];
-  const desireLeader = [...metrics].sort((a, b) => b.noBudget - a.noBudget)[0];
-  const purchase = purchaseIntentInsights(responses);
-  const battle = battleSignalInsights(responses);
-  const segments = ageRanges.map((range) => {
-    const group = responses.filter((response) => response.ageRange === range);
-    const groupMetrics = buildMetrics(group);
-    return { range, count: group.length, winner: groupMetrics[0]?.name || "-" };
-  });
-  return `
-    <div class="panel analytics-studio">
-      <div class="panel-title">
         <div>
-          <div class="eyebrow">Decision intelligence</div>
-          <h3>Founder Analytics Studio</h3>
-          <p class="hint">A sharper operating view for product decisions, segment reads, and launch confidence.</p>
+          <strong>Survey flow</strong>
+          <span>The flow is the route customers follow through those blocks from start to submission.</span>
         </div>
       </div>
-      <div class="decision-grid">
-        <div class="decision-card"><span>Overall winner</span><strong>${metrics[0]?.name || "-"}</strong></div>
-        <div class="decision-card"><span>Buy-now leader</span><strong>${buyNowLeader?.name || "-"}</strong></div>
-        <div class="decision-card"><span>No-budget desire</span><strong>${desireLeader?.name || "-"}</strong></div>
-        <div class="decision-card"><span>Completed reviews</span><strong>${completed}</strong></div>
+      <div class="flow-rail">
+        ${flow.map((step, index) => flowStepCard(step, index, blocks, questionsById)).join("")}
       </div>
-      <div class="research-insight-grid">
-        <div class="research-insight-card">
-          <h4>Design Battle Read</h4>
-          <p><strong>${battle.topConfidence || "-"}</strong> has the strongest confident-win signal.</p>
-          <p class="hint">Top choice drivers: ${battle.topDrivers.join(", ") || "-"}</p>
-        </div>
-        <div class="research-insight-card">
-          <h4>Purchase Intent Read</h4>
-          <p><strong>${purchase.readyDesign || "-"}</strong> is closest to launch-ready purchase demand.</p>
-          <p class="hint">Main blocker: ${purchase.topBarrier || "-"}. Fastest timing: ${purchase.fastestTiming || "-"}.</p>
-        </div>
-      </div>
-      <div class="segment-table">
-        <div class="segment-row segment-head"><strong>Segment</strong><strong>Responses</strong><strong>Leading design</strong></div>
-        ${segments.map((segment) => `<div class="segment-row"><span>${segment.range}</span><span>${segment.count}</span><span>${segment.winner}</span></div>`).join("")}
-      </div>
-    </div>
+    </section>
   `;
 }
 
-function battleSignalInsights(responses) {
-  const confidenceByDesign = {};
-  const drivers = {};
-  responses.forEach((response) => {
-    (response.battles || []).forEach((battle) => {
-      if (battle.confidence === "Instant yes" || battle.confidence === "Quite sure") {
-        confidenceByDesign[battle.winner] = (confidenceByDesign[battle.winner] || 0) + 1;
-      }
-      (battle.drivers || []).forEach((driver) => {
-        drivers[driver] = (drivers[driver] || 0) + 1;
-      });
-    });
-  });
-  const topConfidenceId = Object.entries(confidenceByDesign).sort((a, b) => b[1] - a[1])[0]?.[0];
-  return {
-    topConfidence: findDesign(topConfidenceId)?.name || "",
-    topDrivers: Object.entries(drivers).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([driver]) => driver)
-  };
-}
-
-function purchaseIntentInsights(responses) {
-  const readiness = {};
-  const barriers = {};
-  const timings = {};
-  responses.forEach((response) => {
-    Object.entries(response.purchaseIntent || {}).forEach(([id, item]) => {
-      if (item.urgency === "Today") readiness[id] = (readiness[id] || 0) + 4;
-      if (item.urgency === "This week") readiness[id] = (readiness[id] || 0) + 3;
-      if (item.priceFeel === "Good value") readiness[id] = (readiness[id] || 0) + 2;
-      if (item.priceFeel === "Acceptable") readiness[id] = (readiness[id] || 0) + 1;
-      if (item.barrier && item.barrier !== "None") barriers[item.barrier] = (barriers[item.barrier] || 0) + 1;
-      if (item.urgency) timings[item.urgency] = (timings[item.urgency] || 0) + 1;
-    });
-  });
-  const readyId = Object.entries(readiness).sort((a, b) => b[1] - a[1])[0]?.[0];
-  return {
-    readyDesign: findDesign(readyId)?.name || "",
-    topBarrier: Object.entries(barriers).sort((a, b) => b[1] - a[1])[0]?.[0] || "None captured",
-    fastestTiming: Object.entries(timings).sort((a, b) => b[1] - a[1])[0]?.[0] || ""
-  };
-}
-
-function rewardConsole(responses) {
-  const pending = responses.filter((response) => response.rewardStatus === "Pending founder approval");
-  const approved = responses.filter((response) => response.rewardStatus === "Approved");
-  const issued = responses.filter((response) => response.rewardStatus === "Issued to Smile.io");
+function flowStepCard(step, index, blocks, questionsById) {
+  const blockId = step.type === "branch" ? step.then?.[0]?.ref : step.ref;
+  const block = blocks.find((item) => item.id === blockId);
+  const questions = (block?.questionIds || []).map((id) => questionsById[id]).filter(Boolean);
   return `
-    <div class="panel reward-console">
-      <div class="panel-title">
-        <div>
-          <div class="eyebrow">Sunday Points</div>
-          <h3>Reward Approval Console</h3>
-          <p class="hint">Track feedback rewards separately from product analytics so points can be approved cleanly.</p>
-        </div>
-      </div>
-      <div class="decision-grid">
-        <div class="decision-card"><span>Pending</span><strong>${pending.length}</strong></div>
-        <div class="decision-card"><span>Approved</span><strong>${approved.length}</strong></div>
-        <div class="decision-card"><span>Issued</span><strong>${issued.length}</strong></div>
-        <div class="decision-card"><span>Points pending</span><strong>${pending.reduce((sum, item) => sum + item.points, 0)}</strong></div>
-      </div>
-      <div class="reward-list">
-        ${responses.slice(-12).reverse().map((response, index) => rewardRow(response, responses.length - 1 - index)).join("") || `<p class="hint">No rewards to review yet.</p>`}
-      </div>
-    </div>
-  `;
-}
-
-function rewardRow(response, index) {
-  return `
-    <div class="reward-row">
+    <article class="flow-step-card">
+      <div class="flow-step-number">${index + 1}</div>
       <div>
-        <strong>${response.customerEmail}</strong>
-        <span>${response.ageRange || "-"} - ${response.points} points - ${response.rewardStatus}</span>
+        <span>${step.type === "branch" ? "Conditional block" : "Block"}</span>
+        <strong>${block?.title || blockId || "Missing block"}</strong>
+        <p>${flowStepDescription(step, block, questions)}</p>
+        <div class="flow-question-tags">
+          ${questions.length ? questions.map((question) => `<em>${moduleLabelForQuestion(question)}</em>`).join("") : `<em>No questions assigned</em>`}
+        </div>
       </div>
-      <div class="button-row">
-        <button class="small-button" data-action="reward-status" data-index="${index}" data-status="Approved">Approve</button>
-        <button class="small-button" data-action="reward-status" data-index="${index}" data-status="Issued to Smile.io">Mark issued</button>
-      </div>
-    </div>
+    </article>
   `;
 }
 
-function resultRow(item) {
-  const design = findDesign(item.id);
+function flowStepDescription(step, block, questions) {
+  if (!block) return "This flow step needs a valid block before customers can reach it.";
+  if (step.type === "branch") return `Shown when ${step.condition?.questionId || "a prior question"} is ${step.condition?.operator || "matched"}.`;
+  if (questions.length === 1) return "Customer sees one focused research module in this moment.";
+  return `Customer sees ${questions.length} grouped research modules in this moment.`;
+}
+
+function moduleLabelForQuestion(question) {
+  if (question.type === "intro") return "Welcome";
+  return question.module?.label || defaultModule(moduleTypeFromQuestion(question)).label || question.prompt || question.id;
+}
+
+function moduleCatalog() {
+  return [
+    { id: "champion-battle", label: "Round 1: Champion battle", description: "Two-platform head-to-head voting where winners stay and challengers rotate." },
+    { id: "set-ranking", label: "Round 2: Rank set of five", description: "Rank a set from 1 to 5, with 5 as strongest purchase interest." },
+    { id: "aspiration-pick", label: "Round 3: No-budget top five", description: "Choose up to five samples customers aspire toward most." },
+    { id: "reason-diagnosis", label: "Round 4: Selection reasons", description: "Justify top selections using structured, reusable reason tags." },
+    { id: "brand-fit", label: "Brand fit check", description: "Check whether the design feels aligned with Sunday Staples." },
+    { id: "price", label: "Price test", description: "Test purchase interest at likely retail prices." },
+    { id: "open", label: "Open feedback", description: "Let customers tell Cherri what they would improve." }
+  ];
+}
+
+function researchModules(campaign) {
+  return campaign.questions
+    .filter((question) => question.type !== "intro")
+    .map((question, index) => ({
+      ...defaultModule(moduleTypeFromQuestion(question), campaign),
+      ...question.module,
+      questionId: question.id,
+      type: moduleTypeFromQuestion(question),
+      prompt: question.prompt || question.module?.prompt || "",
+      required: Boolean(question.required),
+      index
+    }));
+}
+
+function moduleTypeFromQuestion(question) {
+  if (question.module?.type) return question.module.type;
+  if (question.type === "pairwise") return "champion-battle";
+  if (question.id.includes("buying")) return "buying-intent";
+  if (question.id.includes("ranking")) return "ranking";
+  if (question.id.includes("colour") || question.id.includes("color")) return "colour";
+  if (question.type === "choice") return "tweak";
+  if (question.type === "text") return "open";
+  return question.type;
+}
+
+function defaultModule(type, campaign = adminDraft) {
+  const conceptIds = campaign?.conceptIds || [];
+  const defaults = {
+    "champion-battle": {
+      label: "Round 1: Champion battle",
+      prompt: "Two shoes are on the platforms. Which one would you choose to stay in the room?",
+      questionType: "pairwise",
+      collectReason: true,
+      collectDrivers: true,
+      conceptIds
+    },
+    "set-ranking": {
+      label: "Round 2: Rank set of five",
+      prompt: "Rank this set of five shoes. Give 5 to the strongest purchase candidate and 1 to the weakest.",
+      questionType: "ranking",
+      conceptIds: conceptIds.slice(0, 5)
+    },
+    "aspiration-pick": {
+      label: "Round 3: No-budget top five",
+      prompt: "If money was not a concern, which five pairs would you most aspire to own?",
+      questionType: "multi-select",
+      maxSelections: 5,
+      conceptIds
+    },
+    "reason-diagnosis": {
+      label: "Round 4: Selection reasons",
+      prompt: "For your strongest selections, what made them stand out?",
+      questionType: "reason-pool",
+      reasons: defaultReasonPool(),
+      sourceQuestionType: "aspiration-pick",
+      conceptIds
+    },
+    "buying-intent": {
+      label: "Buying intent score",
+      prompt: "How strong is your buying intent for each design?",
+      questionType: "rating",
+      scale: ["Pass", "Curious", "Would try", "Likely buy", "Need this"],
+      conceptIds
+    },
+    "brand-fit": {
+      label: "Sunday Staples fit",
+      prompt: "How well does each design fit Sunday Staples?",
+      questionType: "rating",
+      scale: ["Not us", "Maybe", "On brand", "Very Sunday Staples", "Signature potential"],
+      conceptIds
+    },
+    comfort: {
+      label: "Comfort expectation",
+      prompt: "How comfortable do you expect this design to feel?",
+      questionType: "rating",
+      scale: ["Unsure", "Low", "Moderate", "High", "Cloud-level"],
+      conceptIds
+    },
+    colour: {
+      label: "Colourway vote",
+      prompt: "Which colour direction feels most Sunday Staples?",
+      questionType: "choice",
+      options: ["Cream", "Nude", "Black", "Blush", "Sage", "Light Blue"]
+    },
+    price: {
+      label: "Price test",
+      prompt: "What price would still feel like a yes?",
+      questionType: "choice",
+      options: ["$129", "$149", "$169", "$189", "Only with promo"]
+    },
+    tweak: {
+      label: "Tweak selector",
+      prompt: "What should be tweaked before Sunday Staples places the order?",
+      questionType: "choice",
+      options: ["Colour", "Material", "Toe shape", "Heel height", "Strap", "Comfort lining", "Reject design"]
+    },
+    ranking: {
+      label: "Final ranking",
+      prompt: "Rank the finalists from strongest to weakest for Sunday Staples.",
+      questionType: "ranking",
+      conceptIds
+    },
+    open: {
+      label: "Open feedback",
+      prompt: "What would you tell Cherri about this shortlist?",
+      questionType: "text",
+      validation: { maxLength: 600 }
+    }
+  };
+  return defaults[type] || defaults.open;
+}
+
+function defaultReasonPool() {
+  return [
+    "Suits my taste",
+    "Most mileage for me",
+    "Looks the most comfortable",
+    "Perfect for everyday needs",
+    "Extremely attractive to me",
+    "Feels premium",
+    "Easy to match with outfits",
+    "Suitable for work",
+    "Suitable for weekends",
+    "Looks unique but wearable",
+    "Good travel shoe",
+    "Would replace something I already own",
+    "I would wait for this launch",
+    "I would recommend this to a friend"
+  ];
+}
+
+function moduleEditor(module, index) {
+  const definition = moduleCatalog().find((item) => item.id === module.type) || { label: module.label, description: "" };
   return `
-    <div class="result-row">
-      <div class="result-head">
-        <img style="${imageStyle(design)}" src="${design.image}" alt="${item.name}" />
+    <article class="research-module" data-module-index="${index}">
+      <div class="module-head">
         <div>
-          <strong>${item.name}</strong>
-          <span class="hint">Battle wins ${item.wins}, buy-now ${item.immediate}, no-budget ${item.noBudget}, rank score ${item.rankScore}</span>
+          <span>Step ${index + 1}</span>
+          <h3>${definition.label}</h3>
+          <p>${definition.description}</p>
+        </div>
+        <div class="module-actions">
+          <button type="button" data-move-module="${index}" data-dir="-1" ${index === 0 ? "disabled" : ""}>Up</button>
+          <button type="button" data-move-module="${index}" data-dir="1">Down</button>
+          <button type="button" data-remove-module="${index}">Remove</button>
         </div>
       </div>
-      <div class="result-line" style="--w:${Math.min(100, item.score)}%"><span></span></div>
-    </div>
+      <input type="hidden" data-module-field="type" value="${module.type}" />
+      <label>Question prompt<input data-module-field="prompt" value="${escapeAttr(module.prompt)}" /></label>
+      <div class="module-config-grid">
+        <label class="switch-inline"><input data-module-field="required" type="checkbox" ${module.required ? "checked" : ""} />Required</label>
+        <label class="switch-inline"><input data-module-field="collectReason" type="checkbox" ${module.collectReason ? "checked" : ""} />Ask why</label>
+        <label class="switch-inline"><input data-module-field="collectDrivers" type="checkbox" ${module.collectDrivers ? "checked" : ""} />Capture drivers</label>
+      </div>
+      ${moduleOptionEditor(module)}
+      ${moduleConceptSelector(module)}
+    </article>
   `;
 }
 
-function conceptLibrary(designs) {
+function moduleOptionEditor(module) {
+  if (!["choice", "price", "tweak", "colour"].includes(module.questionType) && !module.options && !module.reasons) {
+    if (!module.scale) return "";
+  }
+  const label = module.reasons ? "Reason pool" : module.scale ? "Scale labels" : "Choice options";
+  const field = module.reasons ? "reasons" : module.scale ? "scale" : "options";
+  const values = module.reasons || module.scale || module.options || [];
+  return `<label>${label}<input data-module-field="${field}" value="${escapeAttr(values.join(", "))}" /></label>`;
+}
+
+function moduleConceptSelector(module) {
+  if (!["champion-battle", "set-ranking", "aspiration-pick", "reason-diagnosis", "buying-intent", "brand-fit", "comfort", "ranking"].includes(module.type)) return "";
+  const concepts = state().concepts.filter((concept) => adminDraft.conceptIds.includes(concept.id));
   return `
-    <div class="panel concept-library">
-      <div class="panel-title">
-        <div>
-          <h3>Founder Visual Library</h3>
-          <p class="hint">Use this image grid to identify SKUs quickly as the review pool grows.</p>
-        </div>
-      </div>
-      <div class="concept-grid">
-        ${designs.map((design) => `
-          <article class="concept-tile">
-            <img style="${imageStyle(design)}" src="${design.image}" alt="${design.name}" />
-            <div>
-              <strong>${design.name}</strong>
-              <span>${displayDescription(design)}</span>
-            </div>
-          </article>
+    <div>
+      <p class="hint">Concepts included in this module</p>
+      <div class="mini-concept-grid">
+        ${concepts.map((concept) => `
+          <label class="mini-concept">
+            <input data-module-concept type="checkbox" value="${concept.id}" ${(module.conceptIds || adminDraft.conceptIds).includes(concept.id) ? "checked" : ""} />
+            ${mediaElement(concept)}
+            <span>${concept.name}</span>
+          </label>
         `).join("")}
       </div>
     </div>
   `;
 }
 
-function founderControls() {
-  const selectedSession = founderSessionId();
-  const brackets = getCustomBrackets();
-  const pairs = brackets[selectedSession]?.length ? brackets[selectedSession] : defaultBracketForSession(selectedSession);
+function conceptsAdminSection(s) {
   return `
-    ${researchStudioControls()}
-    ${imagePrepControls()}
-    <div class="panel founder-controls">
-      <div class="panel-title">
-        <div>
-          <div class="eyebrow">Backend controls</div>
-          <h3>Bracket Customisation</h3>
-          <p class="hint">Choose exactly which shoes face each other. Saved brackets apply immediately to customers assigned to that session.</p>
-        </div>
-        <select class="session-select" data-action="select-founder-session">
-          ${Object.entries(reviewSessions).map(([id, session]) => `<option value="${id}" ${id === selectedSession ? "selected" : ""}>${session.name}</option>`).join("")}
-        </select>
-      </div>
-      <div class="bracket-list">
-        ${pairs.map((pair, index) => bracketRow(pair, index, selectedSession)).join("")}
-      </div>
-      <div class="button-row">
-        <button class="primary-button" data-action="save-bracket">Save logic tree</button>
-        <button class="ghost-button" data-action="add-match">Add match</button>
-        <button class="ghost-button" data-action="round-16">Use Round of 16 style</button>
-        <button class="ghost-button" data-action="clear-bracket">Reset to automatic</button>
-      </div>
-      <p class="hint">Set each matchup, then choose where the customer goes if the left or right shoe wins. Use "End review" when a branch should finish early.</p>
-    </div>
-    ${logicTreeReview(selectedSession, pairs)}
-    ${groupRuleControls(selectedSession, pairs)}
-  `;
-}
-
-function researchStudioControls() {
-  const settings = getResearchSettings();
-  return `
-    <div class="panel research-studio founder-controls">
-      <div class="panel-title">
-        <div>
-          <div class="eyebrow">Survey Studio</div>
-          <h3>Design Battle + Purchase Intent Templates</h3>
-          <p class="hint">Qualtrics-style controls adapted for Sunday Staples: configure the questions, signals, and commercial diagnostics customers see.</p>
-        </div>
-      </div>
-      <div class="research-template-grid">
-        <article class="research-template-card">
-          <div class="template-kicker">A. Design Battle Studio</div>
-          <h4>Preference, confidence, and choice drivers</h4>
-          <label>
-            Battle question
-            <input data-research-field="battle-prompt" maxlength="90" value="${escapeAttribute(settings.battle.prompt)}" />
-          </label>
-          <label class="switch-row small-switch">
-            <input type="checkbox" data-research-field="battle-confidence" ${settings.battle.captureConfidence ? "checked" : ""} />
-            Capture confidence after each battle
-          </label>
-          <label class="switch-row small-switch">
-            <input type="checkbox" data-research-field="battle-drivers" ${settings.battle.captureDrivers ? "checked" : ""} />
-            Capture design drivers
-          </label>
-          <label class="switch-row small-switch">
-            <input type="checkbox" data-research-field="battle-reason" ${settings.battle.requireReason ? "checked" : ""} />
-            Require a short reason
-          </label>
-        </article>
-        <article class="research-template-card">
-          <div class="template-kicker">B. Purchase Intent Studio</div>
-          <h4>Buying urgency, barriers, price feel, and occasion</h4>
-          <label>
-            Purchase question
-            <input data-research-field="purchase-prompt" maxlength="100" value="${escapeAttribute(settings.purchase.prompt)}" />
-          </label>
-          <label class="switch-row small-switch">
-            <input type="checkbox" data-research-field="purchase-enabled" ${settings.purchase.enabled ? "checked" : ""} />
-            Add purchase diagnostic step
-          </label>
-          <label class="switch-row small-switch">
-            <input type="checkbox" data-research-field="purchase-urgency" ${settings.purchase.captureUrgency ? "checked" : ""} />
-            Capture buying timing
-          </label>
-          <label class="switch-row small-switch">
-            <input type="checkbox" data-research-field="purchase-barrier" ${settings.purchase.captureBarrier ? "checked" : ""} />
-            Capture purchase blocker
-          </label>
-          <label class="switch-row small-switch">
-            <input type="checkbox" data-research-field="purchase-price" ${settings.purchase.capturePriceFeel ? "checked" : ""} />
-            Capture price feel
-          </label>
-          <label class="switch-row small-switch">
-            <input type="checkbox" data-research-field="purchase-occasion" ${settings.purchase.captureOccasion ? "checked" : ""} />
-            Capture use occasion
-          </label>
-        </article>
-      </div>
-      <div class="button-row" style="margin-top:16px">
-        <button class="primary-button" data-action="save-research-settings">Save survey settings</button>
-        <button class="ghost-button" data-action="reset-research-settings">Reset survey settings</button>
-      </div>
+    <div class="section-kicker">Concept Library</div>
+    <h2>Select the designs in this campaign.</h2>
+    <p class="hint">Each concept is a reusable product record with brand, factory, media, and campaign relationships.</p>
+    <div class="library-grid">
+      ${s.concepts.map((concept) => `
+        <label class="library-card">
+          <input type="checkbox" value="${concept.id}" ${adminDraft.conceptIds.includes(concept.id) ? "checked" : ""} />
+          ${mediaElement(concept)}
+          <strong>${concept.name}</strong>
+          <span>${concept.factoryCode}</span>
+        </label>
+      `).join("")}
     </div>
   `;
 }
 
-function logicTreeReview(sessionId, pairs) {
-  const nodes = pairs.map((item, index) => Array.isArray(item)
-    ? {
-        id: `m${index + 1}`,
-        pair: item,
-        leftNext: index + 1 < pairs.length ? `m${index + 2}` : "end",
-        rightNext: index + 1 < pairs.length ? `m${index + 2}` : "end"
-      }
-    : item);
-  const insights = analyseLogicTree(nodes);
+function uploadsAdminSection() {
   return `
-    <div class="panel logic-review">
-      <div class="panel-title">
-        <div>
-          <div class="eyebrow">Founder readout</div>
-          <h3>Logic Tree Review</h3>
-          <p class="hint">This translates your saved match routes into plain English so you can see what customer journey you are creating.</p>
-        </div>
-      </div>
-      <div class="logic-summary-grid">
-        <div class="stat"><strong>${nodes.length}</strong><span>possible battles</span></div>
-        <div class="stat"><strong>${insights.branchCount}</strong><span>true branches</span></div>
-        <div class="stat"><strong>${insights.endCount}</strong><span>early endings</span></div>
-        <div class="stat"><strong>${insights.unreachable.length}</strong><span>unreachable matches</span></div>
-      </div>
-      <div class="logic-readout">
-        ${insights.commentary.map((line) => `<p>${line}</p>`).join("")}
-        ${insights.warnings.length ? `<div class="warning-list">${insights.warnings.map((line) => `<p>${line}</p>`).join("")}</div>` : ""}
-      </div>
+    <div class="section-kicker">Upload Intake</div>
+    <h2>Add new shoe designs and concepts.</h2>
+    <p class="hint">Uploaded files become new Sunday Staples concept records and are automatically attached to the active campaign.</p>
+    ${uploadDropzone("conceptUpload")}
+  `;
+}
+
+function uploadDropzone(id) {
+  return `
+    <div class="upload-zone" data-upload-zone>
+      <input id="${id}" data-concept-upload type="file" accept="image/*,.gif,video/*" multiple />
+      <label for="${id}">
+        <strong>Upload new shoe concepts</strong>
+        <span>Click to choose files or drag photos, GIFs, and short videos here.</span>
+      </label>
     </div>
   `;
 }
 
-function analyseLogicTree(nodes) {
-  const ids = nodes.map((node) => node.id);
-  const byId = Object.fromEntries(nodes.map((node) => [node.id, node]));
-  const branchCount = nodes.filter((node) => node.leftNext !== node.rightNext).length;
-  const endCount = nodes.filter((node) => node.leftNext === "end" || node.rightNext === "end").length;
-  const reachable = new Set();
-  const warnings = [];
-
-  function walk(id, path = []) {
-    if (!id || id === "end") return;
-    if (!byId[id]) {
-      warnings.push(`A route points to ${id}, but that match does not exist.`);
-      return;
-    }
-    if (path.includes(id)) {
-      warnings.push(`There is a loop around ${id}. A customer may get stuck repeating battles.`);
-      return;
-    }
-    reachable.add(id);
-    walk(byId[id].leftNext, [...path, id]);
-    walk(byId[id].rightNext, [...path, id]);
-  }
-
-  walk(ids[0]);
-  const unreachable = ids.filter((id) => !reachable.has(id));
-  if (unreachable.length) warnings.push(`${unreachable.join(", ")} cannot be reached from Match 1.`);
-
-  const commentary = nodes.slice(0, 6).map((node, index) => {
-    const left = findDesign(node.pair[0])?.name || node.pair[0];
-    const right = findDesign(node.pair[1])?.name || node.pair[1];
-    if (node.leftNext === node.rightNext) {
-      return `Match ${index + 1} is a calibration battle: whether ${left} or ${right} wins, the customer goes to ${routeLabel(node.leftNext)}.`;
-    }
-    return `Match ${index + 1} is a preference splitter: choosing ${left} sends the customer to ${routeLabel(node.leftNext)}, while choosing ${right} sends them to ${routeLabel(node.rightNext)}.`;
-  });
-
-  if (nodes.length > 6) commentary.push(`There are ${nodes.length - 6} more matches after this, so the tree is becoming a more advanced segmentation flow.`);
-  if (!branchCount) commentary.unshift("At the moment, this behaves like a fixed bracket rather than a branching logic tree, because every outcome follows the same next step.");
-  else commentary.unshift("You appear to be using early battles to classify taste, then sending customers into different follow-up comparisons based on what they choose.");
-
-  return { branchCount, endCount, unreachable, warnings, commentary };
-}
-
-function routeLabel(route) {
-  if (!route || route === "end") return "the end of the review";
-  return route.replace("m", "Match ");
-}
-
-function groupRuleControls(sessionId, fallbackPairs) {
-  const rules = getGroupRules()[sessionId] || {};
+function uploadedMediaThumb(concept) {
   return `
-    <div class="panel founder-controls">
-      <div class="panel-title">
-        <div>
-          <div class="eyebrow">Backend controls</div>
-          <h3>Customer Group Assignment</h3>
-          <p class="hint">Assign a saved match order to customers based on the age range they select before entering.</p>
-        </div>
-      </div>
-      <div class="group-rule-grid">
-        ${ageRanges.map((range) => groupRuleCard(range, rules[range] || [], fallbackPairs)).join("")}
-      </div>
-      <div class="button-row" style="margin-top:16px">
-        <button class="primary-button" data-action="save-group-rules">Save group rules</button>
-        <button class="ghost-button" data-action="copy-bracket-to-groups">Copy current bracket to all age ranges</button>
-        <button class="ghost-button" data-action="clear-group-rules">Clear group rules</button>
-      </div>
-      <p class="hint">If an age range has no assigned order, that customer receives the main session bracket.</p>
-    </div>
-  `;
-}
-
-function groupRuleCard(range, pairs, fallbackPairs) {
-  const previewPairs = pairs.length ? pairs : fallbackPairs;
-  return `
-    <article class="group-rule-card" data-group-rule="${range}">
+    <article class="uploaded-thumb">
+      ${mediaElement(concept)}
       <div>
-        <strong>${range}</strong>
-        <span class="hint">${pairs.length ? `${pairs.length} custom matches` : "Uses main bracket"}</span>
-      </div>
-      <div class="group-preview">
-        ${previewPairs.slice(0, 3).map((item) => matchupPreview(Array.isArray(item) ? item : item.pair)).join("")}
-      </div>
-      <div class="button-row">
-        <button class="small-button" data-action="assign-current-bracket" data-age="${range}">Assign current</button>
-        <button class="small-button" data-action="clear-age-rule" data-age="${range}">Clear</button>
+        <strong>${concept.name}</strong>
+        <span>${concept.media[0].fileName || concept.factoryCode}</span>
       </div>
     </article>
   `;
 }
 
-function matchupPreview(pair) {
-  const left = findDesign(pair[0]);
-  const right = findDesign(pair[1]);
-  if (!left || !right) return "";
+function publishAdminSection() {
+  const selectedCount = adminDraft.conceptIds.length;
+  const questionCount = adminDraft.questions.length;
+  const quotaCount = adminDraft.surveyDefinition?.quotas?.length || 0;
   return `
-    <div class="matchup-preview">
-      <img style="${imageStyle(left)}" src="${left.image}" alt="${left.name}" />
-      <span>vs</span>
-      <img style="${imageStyle(right)}" src="${right.image}" alt="${right.name}" />
+    <div class="section-kicker">Preview & Publish</div>
+    <h2>Review campaign readiness.</h2>
+    <p class="hint">A practical check before sending this to Sunday Staples customers.</p>
+    <div class="readiness-grid">
+      <div><strong>${selectedCount}</strong><span>Selected concepts</span></div>
+      <div><strong>${questionCount}</strong><span>Questions</span></div>
+      <div><strong>${quotaCount}</strong><span>Segment quotas</span></div>
+      <div><strong>${adminDraft.status}</strong><span>Status</span></div>
     </div>
+    <button type="button" class="secondary" data-route="member">Open customer preview</button>
   `;
 }
 
-function imagePrepControls() {
+function surveyQuestions(campaign) {
+  const byId = Object.fromEntries(campaign.questions.map((question) => [question.id, question]));
+  const ordered = [];
+  campaign.surveyDefinition.flow.forEach((step) => {
+    if (step.type === "block") pushBlockQuestions(step.ref);
+    if (step.type === "branch" && evaluateBranch(step.condition, campaign)) {
+      (step.then || []).forEach((branchStep) => {
+        if (branchStep.type === "block") pushBlockQuestions(branchStep.ref);
+      });
+    }
+  });
+  campaign.questions.forEach((question) => {
+    if (!ordered.some((item) => item.id === question.id)) ordered.push(question);
+  });
+  return ordered.filter((question) => displayQuestion(question, campaign));
+
+  function pushBlockQuestions(blockId) {
+    const block = campaign.surveyDefinition.blocks.find((item) => item.id === blockId);
+    (block?.questionIds || []).forEach((id) => {
+      if (byId[id]) ordered.push(byId[id]);
+    });
+  }
+}
+
+function evaluateBranch(condition, campaign) {
+  if (!condition) return true;
+  if (condition.operator === "answered") return Boolean(participant.answers[condition.questionId]);
+  if (condition.operator === "always") return true;
+  return true;
+}
+
+function displayQuestion(question, campaign) {
+  const logic = question.displayLogic;
+  if (!logic) return true;
+  if (logic.source === "campaign.conceptIds" && logic.operator === "count_gte") {
+    return campaign.conceptIds.length >= Number(logic.value);
+  }
+  return true;
+}
+
+function surveyModelSummary(campaign) {
+  const definition = campaign.surveyDefinition || normaliseCampaign(campaign).surveyDefinition;
+  const diagnostics = surveyDiagnostics(campaign);
   return `
-    <div class="panel image-controls">
-      <div class="panel-title">
+    <section class="survey-model">
+      <div><strong>${definition.blocks.length}</strong><span>Blocks</span></div>
+      <div><strong>${definition.flow.length}</strong><span>Flow steps</span></div>
+      <div><strong>${definition.quotas.length}</strong><span>Quotas</span></div>
+      <div><strong>${definition.embeddedData.length}</strong><span>Embedded data</span></div>
+      <p>Backend model: blocks, branch logic, display rules, validation, scoring weights, quotas, and export fields.</p>
+      <div class="${diagnostics.length ? "diagnostics warn" : "diagnostics ok"}">
+        <strong>${diagnostics.length ? `${diagnostics.length} issue${diagnostics.length === 1 ? "" : "s"}` : "Ready"}</strong>
+        <span>${diagnostics.length ? diagnostics.join(" ") : "Survey flow and scoring controls are internally consistent."}</span>
+      </div>
+    </section>
+  `;
+}
+
+function surveyDiagnostics(campaign) {
+  const definition = campaign.surveyDefinition;
+  const blockIds = new Set(definition.blocks.map((block) => block.id));
+  const questionIds = new Set(campaign.questions.map((question) => question.id));
+  const issues = [];
+  definition.flow.forEach((step) => {
+    const ref = step.type === "branch" ? step.then?.[0]?.ref : step.ref;
+    if (ref && !blockIds.has(ref)) issues.push(`Flow references missing block "${ref}".`);
+    if (step.type === "branch" && step.condition?.operator === "answered" && !questionIds.has(step.condition.questionId)) {
+      issues.push(`Branch checks missing question "${step.condition.questionId}".`);
+    }
+  });
+  definition.blocks.forEach((block) => {
+    block.questionIds.forEach((id) => {
+      if (!questionIds.has(id)) issues.push(`Block "${block.id}" contains missing question "${id}".`);
+    });
+  });
+  const weights = definition.scoring.pairwiseWeight + definition.scoring.buyingIntentWeight + definition.scoring.rankingWeight + (definition.scoring.aspirationWeight || 0) + (definition.scoring.reasonWeight || 0);
+  if (weights !== 100) issues.push(`Scoring weights total ${weights}, not 100.`);
+  return issues;
+}
+
+function questionEditor(question, index) {
+  const selectedBlockIds = adminDraft.surveyDefinition.blocks
+    .filter((block) => block.questionIds.includes(question.id))
+    .map((block) => block.id);
+  return `
+    <article class="logic-card question-card" data-question-index="${index}">
+      <div class="logic-card-head">
+        <strong>${question.id}</strong>
+        <button type="button" data-remove-question="${index}" aria-label="Remove question">Remove</button>
+      </div>
+      <div class="logic-row">
+        <label>Type
+          <select data-question-field="type">
+            ${["intro", "pairwise", "rating", "ranking", "choice", "text"].map((type) => `<option ${question.type === type ? "selected" : ""}>${type}</option>`).join("")}
+          </select>
+        </label>
+        <label>Analytics key<input data-question-field="analyticsKey" value="${escapeAttr(question.analyticsKey)}" /></label>
+        <label class="switch-inline"><input data-question-field="required" type="checkbox" ${question.required ? "checked" : ""} />Required</label>
+      </div>
+      <label>Prompt<input data-question-field="prompt" value="${escapeAttr(question.prompt || question.title || "")}" /></label>
+      <div class="logic-row">
+        <label>Display source
+          <select data-question-field="displaySource">
+            <option value="">Always show</option>
+            <option value="campaign.conceptIds" ${question.displayLogic?.source === "campaign.conceptIds" ? "selected" : ""}>Campaign concept count</option>
+          </select>
+        </label>
+        <label>Operator
+          <select data-question-field="displayOperator">
+            <option value="count_gte" ${question.displayLogic?.operator === "count_gte" ? "selected" : ""}>count is at least</option>
+          </select>
+        </label>
+        <label>Value<input data-question-field="displayValue" type="number" value="${question.displayLogic?.value || ""}" /></label>
+      </div>
+      <div class="logic-row">
+        <label>Max text length<input data-question-field="maxLength" type="number" value="${question.validation?.maxLength || ""}" /></label>
+        <label>Included in blocks<input data-question-field="blocks" value="${escapeAttr(selectedBlockIds.join(", "))}" placeholder="welcome-block, intent-block" /></label>
+      </div>
+    </article>
+  `;
+}
+
+function blockEditor(block, index) {
+  return `
+    <article class="logic-card" data-block-index="${index}">
+      <div class="logic-card-head">
+        <strong>Block ${index + 1}</strong>
+        <button type="button" data-remove-block="${index}">Remove</button>
+      </div>
+      <div class="logic-row">
+        <label>Block ID<input data-block-field="id" value="${escapeAttr(block.id)}" /></label>
+        <label>Title<input data-block-field="title" value="${escapeAttr(block.title)}" /></label>
+      </div>
+      <label>Question IDs<input data-block-field="questionIds" value="${escapeAttr(block.questionIds.join(", "))}" /></label>
+      <div class="logic-row">
+        <label>Randomisation
+          <select data-block-field="randomisationMode">
+            ${["none", "randomize_questions", "randomize_pairs"].map((mode) => `<option value="${mode}" ${block.randomisation?.mode === mode ? "selected" : ""}>${mode}</option>`).join("")}
+          </select>
+        </label>
+        <label class="switch-inline"><input data-block-field="balanceLeftRight" type="checkbox" ${block.randomisation?.balanceLeftRight ? "checked" : ""} />Balance left/right</label>
+      </div>
+    </article>
+  `;
+}
+
+function flowEditor(step, index) {
+  return `
+    <article class="logic-card" data-flow-index="${index}">
+      <div class="logic-card-head">
+        <strong>Step ${index + 1}</strong>
+        <button type="button" data-remove-flow="${index}">Remove</button>
+      </div>
+      <div class="logic-row">
+        <label>Step type
+          <select data-flow-field="type">
+            <option value="block" ${step.type === "block" ? "selected" : ""}>block</option>
+            <option value="branch" ${step.type === "branch" ? "selected" : ""}>branch</option>
+          </select>
+        </label>
+        <label>Block reference<input data-flow-field="ref" value="${escapeAttr(step.ref || step.then?.[0]?.ref || "")}" /></label>
+      </div>
+      <div class="logic-row">
+        <label>Branch label<input data-flow-field="label" value="${escapeAttr(step.label || "")}" /></label>
+        <label>Condition question<input data-flow-field="conditionQuestion" value="${escapeAttr(step.condition?.questionId || "")}" /></label>
+        <label>Condition operator
+          <select data-flow-field="conditionOperator">
+            <option value="answered" ${step.condition?.operator === "answered" ? "selected" : ""}>answered</option>
+            <option value="always" ${step.condition?.operator === "always" ? "selected" : ""}>always</option>
+          </select>
+        </label>
+      </div>
+    </article>
+  `;
+}
+
+function embeddedDataEditor(item, index) {
+  return `
+    <article class="logic-card compact-card" data-embedded-index="${index}">
+      <input data-embedded-field="key" value="${escapeAttr(item.key)}" placeholder="key" />
+      <input data-embedded-field="value" value="${escapeAttr(item.value)}" placeholder="value" />
+      <button type="button" data-remove-embedded="${index}">Remove</button>
+    </article>
+  `;
+}
+
+function quotaEditor(item, index) {
+  return `
+    <article class="logic-card compact-card" data-quota-index="${index}">
+      <input data-quota-field="id" value="${escapeAttr(item.id)}" placeholder="quota-id" />
+      <input data-quota-field="segment" value="${escapeAttr(item.segment)}" placeholder="segment" />
+      <input data-quota-field="targetResponses" type="number" min="0" value="${item.targetResponses}" />
+      <button type="button" data-remove-quota="${index}">Remove</button>
+    </article>
+  `;
+}
+
+function resultsView() {
+  const campaign = getCampaign();
+  const rows = scoreConcepts(campaign);
+  return `
+    <section class="screen">
+      <div class="page-head">
         <div>
-          <div class="eyebrow">Backend controls</div>
-          <h3>Image Prep Studio</h3>
-          <p class="hint">Crop, position, label, and mark images for AI harmonisation before customers review them.</p>
+          <p class="eyebrow">Factory order intelligence</p>
+          <h1>Buy, tweak, or reject with evidence.</h1>
+          <p class="lede">${state().responses.filter((item) => item.campaignId === campaign.id).length} responses collected for ${campaign.title}.</p>
         </div>
-        <label class="switch-row">
-          <input type="checkbox" data-action="comparison-mode" ${comparisonModeEnabled() ? "checked" : ""} />
-          Uniform preview
-        </label>
+        <button class="secondary" data-export>Export JSON</button>
       </div>
-      ${assetPipelineSummary()}
-      <div class="image-control-grid">
-        ${allDesigns.map((design) => imageControlCard(design)).join("")}
+      <div class="decision-grid">
+        ${rows.map(resultCard).join("")}
       </div>
-      <div class="button-row" style="margin-top:16px">
-        <button class="primary-button" data-action="save-image-settings">Save image settings</button>
-        <button class="ghost-button" data-action="reset-image-settings">Reset image settings</button>
+      <div class="panel">
+        <h2>Segment read</h2>
+        <div class="segment-grid">
+          ${segmentRows(campaign).join("")}
+        </div>
       </div>
-      <p class="hint">AI harmonisation is captured as a production flag for now. The current local preview uses a uniform comparison treatment; later this can trigger a real AI image-processing queue.</p>
-    </div>
+    </section>
   `;
 }
 
-function assetPipelineSummary() {
-  const settings = getImageSettings();
-  const labelled = allDesigns.filter((design) => imageSetting(design.id).description.trim()).length;
-  const harmonise = allDesigns.filter((design) => imageSetting(design.id).harmonise).length;
-  const cropped = allDesigns.filter((design) => {
-    const setting = imageSetting(design.id);
-    return setting.x !== 50
-      || setting.y !== 50
-      || setting.zoom !== 100
-      || setting.cropLeft !== 8
-      || setting.cropTop !== 8
-      || setting.cropWidth !== 84
-      || setting.cropHeight !== 84
-      || setting.aspect !== "1:1";
-  }).length;
+function scoreConcepts(campaign) {
+  const responses = state().responses.filter((item) => item.campaignId === campaign.id);
+  const scoring = campaign.surveyDefinition.scoring;
+  return conceptsFor(campaign).map((concept) => {
+    let wins = 0;
+    let battles = 0;
+    let rating = 0;
+    let ratingCount = 0;
+    let rank = 0;
+    let aspiration = 0;
+    let reasonMentions = 0;
+    responses.forEach((item) => {
+      (item.answers["battle-1"] || []).forEach((battle) => {
+        if (battle.left === concept.id || battle.right === concept.id) battles += 1;
+        if (battle.winner === concept.id) wins += 1;
+      });
+      Object.values(item.answers || {}).forEach((answer) => {
+        if (Array.isArray(answer) && answer.includes(concept.id)) aspiration += 1;
+        if (answer?.[concept.id] && Array.isArray(answer[concept.id])) reasonMentions += answer[concept.id].length;
+      });
+      const intent = item.answers["buying-intent"]?.[concept.id];
+      if (intent) {
+        rating += Number(intent);
+        ratingCount += 1;
+      }
+      const rankIndex = item.answers.ranking?.indexOf(concept.id);
+      if (rankIndex >= 0) rank += campaign.conceptIds.length - rankIndex;
+    });
+    const winRate = battles ? wins / battles : 0;
+    const intentAvg = ratingCount ? rating / ratingCount : 0;
+    const aspirationRate = responses.length ? aspiration / responses.length : 0;
+    const reasonRate = responses.length ? Math.min(1, reasonMentions / (responses.length * 4)) : 0;
+    const score = Math.round((
+      winRate * scoring.pairwiseWeight +
+      (intentAvg / 5) * scoring.buyingIntentWeight +
+      (rank / Math.max(1, responses.length * campaign.conceptIds.length)) * scoring.rankingWeight +
+      aspirationRate * (scoring.aspirationWeight || 0) +
+      reasonRate * (scoring.reasonWeight || 0)
+    ) * 100) / 100;
+    return { concept, wins, battles, winRate, intentAvg, score, decision: decisionFor(score, intentAvg, winRate) };
+  }).sort((a, b) => b.score - a.score);
+}
+
+function decisionFor(score, intent, winRate) {
+  const thresholds = getCampaign().surveyDefinition.scoring.thresholds;
+  if (score >= thresholds.buy && intent >= 4) return "Buy";
+  if (score >= thresholds.tweak || winRate >= 0.5) return "Tweak";
+  return "Reject";
+}
+
+function resultCard(row) {
   return `
-    <div class="decision-grid asset-pipeline">
-      <div class="decision-card"><span>Assets</span><strong>${allDesigns.length}</strong></div>
-      <div class="decision-card"><span>Labelled</span><strong>${labelled}</strong></div>
-      <div class="decision-card"><span>Cropped</span><strong>${cropped}</strong></div>
-      <div class="decision-card"><span>AI harmonise queue</span><strong>${harmonise}</strong></div>
-    </div>
+    <article class="result-card ${row.decision.toLowerCase()}">
+      ${mediaElement(row.concept)}
+      <div>
+        <span>${row.decision}</span>
+        <h3>${row.concept.name}</h3>
+        <p>${row.concept.factoryCode} · ${row.concept.colorway}</p>
+      </div>
+      <dl>
+        <div><dt>Score</dt><dd>${row.score}</dd></div>
+        <div><dt>Win rate</dt><dd>${Math.round(row.winRate * 100)}%</dd></div>
+        <div><dt>Intent</dt><dd>${row.intentAvg.toFixed(1)}/5</dd></div>
+      </dl>
+    </article>
   `;
 }
 
-function imageControlCard(design) {
-  const setting = imageSetting(design.id);
+function segmentRows(campaign) {
+  const responses = state().responses.filter((item) => item.campaignId === campaign.id);
+  const groups = [...new Set(responses.map((item) => item.member.segment))];
+  return groups.map((segment) => {
+    const count = responses.filter((item) => item.member.segment === segment).length;
+    return `<div><strong>${segment}</strong><span>${count} response${count === 1 ? "" : "s"}</span><p>${topPickForSegment(segment, responses)}</p></div>`;
+  });
+}
+
+function topPickForSegment(segment, responses) {
+  const picks = {};
+  responses.filter((item) => item.member.segment === segment).forEach((item) => {
+    const top = item.answers.ranking?.[0];
+    if (top) picks[top] = (picks[top] || 0) + 1;
+  });
+  const top = Object.entries(picks).sort((a, b) => b[1] - a[1])[0]?.[0];
+  return top ? `Top pick: ${findConcept(top).name}` : "No top pick yet";
+}
+
+function productCard(concept, action) {
   return `
-    <article class="image-control-card" data-image-control="${design.id}">
-      <div class="crop-stage" data-crop-stage style="${imageStyle(design)}">
-        <img class="control-preview" draggable="false" style="${imageStyle(design)}" src="${design.image}" alt="${design.name}" />
-        <div class="crop-frame" data-crop-box>
-          <span data-crop-handle="move"></span>
-          <span data-crop-handle="nw"></span>
-          <span data-crop-handle="ne"></span>
-          <span data-crop-handle="sw"></span>
-          <span data-crop-handle="se"></span>
-          <span data-crop-handle="n"></span>
-          <span data-crop-handle="s"></span>
-          <span data-crop-handle="e"></span>
-          <span data-crop-handle="w"></span>
-        </div>
-        <div class="crop-instruction">Drag box or pull handles</div>
-      </div>
-      <div class="control-body">
-        <strong>${design.name}</strong>
-        <div class="crop-presets" data-image-field="aspect">
-          ${["1:1", "4:6", "6:4", "4:5"].map((aspect) => `<button type="button" class="${setting.aspect === aspect ? "active" : ""}" data-aspect="${aspect}">${aspect}</button>`).join("")}
-        </div>
-        <label>
-          30 character description
-          <input data-image-field="description" maxlength="30" value="${escapeAttribute(setting.description)}" placeholder="e.g. Soft mesh floral flat" />
-        </label>
-        <input data-image-field="x" type="hidden" value="${setting.x}" />
-        <input data-image-field="y" type="hidden" value="${setting.y}" />
-        <input data-image-field="cropLeft" type="hidden" value="${setting.cropLeft}" />
-        <input data-image-field="cropTop" type="hidden" value="${setting.cropTop}" />
-        <input data-image-field="cropWidth" type="hidden" value="${setting.cropWidth}" />
-        <input data-image-field="cropHeight" type="hidden" value="${setting.cropHeight}" />
-        <label>
-          Zoom
-          <input data-image-field="zoom" type="range" min="70" max="180" value="${setting.zoom}" />
-        </label>
-        <label class="switch-row small-switch">
-          <input data-image-field="harmonise" type="checkbox" ${setting.harmonise ? "checked" : ""} />
-          AI harmonise
-        </label>
+    <article class="product-card">
+      ${mediaElement(concept)}
+      <div>
+        <p class="eyebrow">${concept.factoryCode}</p>
+        <h3>${concept.name}</h3>
+        <p>${concept.category} · ${concept.material} · ${concept.priceBand}</p>
+        <button class="primary" data-pick="${concept.id}">${action}</button>
       </div>
     </article>
   `;
 }
 
-function escapeAttribute(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+function conceptTile(concept) {
+  return `<article>${mediaElement(concept)}<strong>${concept.name}</strong></article>`;
 }
 
-function bracketRow(pair, index, sessionId) {
-  const designs = sessionDesigns(sessionId);
-  const item = Array.isArray(pair) ? { id: `m${index + 1}`, pair, leftNext: "next", rightNext: "next" } : pair;
-  const left = findDesign(item.pair[0]) || designs[0];
-  const right = findDesign(item.pair[1]) || designs[1] || designs[0];
-  const allItems = getDisplayBracketItems(sessionId);
+function rankRow(concept, index) {
   return `
-    <div class="bracket-row" data-bracket-row data-index="${index}" draggable="true">
-      <div class="drag-handle" title="Drag to reorder">Drag</div>
-      <div class="rank-number">${index + 1}</div>
-      <img class="bracket-thumb" data-thumb-side="left" style="${imageStyle(left)}" src="${left.image}" alt="${left.name}" />
-      ${bracketSelect(item.pair[0], designs, "left")}
-      <span class="versus">vs</span>
-      <img class="bracket-thumb" data-thumb-side="right" style="${imageStyle(right)}" src="${right.image}" alt="${right.name}" />
-      ${bracketSelect(item.pair[1], designs, "right")}
-      <button class="small-button" data-action="remove-match" data-index="${index}">Remove</button>
-      <div class="logic-routes">
-        <input type="hidden" data-route-field="id" value="${item.id || `m${index + 1}`}" />
-        <label>If left wins ${routeSelect(item.leftNext, allItems, index, "leftNext")}</label>
-        <label>If right wins ${routeSelect(item.rightNext, allItems, index, "rightNext")}</label>
+    <article class="rank-row">
+      <span>${index + 1}</span>
+      ${mediaElement(concept)}
+      <strong>${concept.name}</strong>
+      <div>
+        <button data-rank="${index}" data-dir="-1" ${index === 0 ? "disabled" : ""}>Up</button>
+        <button data-rank="${index}" data-dir="1" ${index === participant.ranking.length - 1 ? "disabled" : ""}>Down</button>
       </div>
-    </div>
+    </article>
   `;
 }
 
-function getDisplayBracketItems(sessionId) {
-  const brackets = getCustomBrackets();
-  const items = brackets[sessionId]?.length ? brackets[sessionId] : defaultBracketForSession(sessionId);
-  return items.map((item, index) => Array.isArray(item) ? { id: `m${index + 1}`, pair: item } : item);
+function progress() {
+  const campaign = getCampaign();
+  const questions = surveyQuestions(campaign);
+  const percent = Math.round((participant.step / Math.max(1, questions.length - 1)) * 100);
+  return `<div class="progress" aria-label="Progress"><span style="width:${percent}%"></span></div>`;
 }
 
-function bracketSelect(value, designs, side) {
-  return `
-    <select data-bracket-side="${side}">
-      ${designs.map((design) => `<option value="${design.id}" ${design.id === value ? "selected" : ""}>${design.name}</option>`).join("")}
-    </select>
-  `;
-}
-
-function routeSelect(value, items, currentIndex, field) {
-  const options = items
-    .map((item, index) => `<option value="${item.id || `m${index + 1}`}" ${value === (item.id || `m${index + 1}`) ? "selected" : ""}>Match ${index + 1}</option>`)
-    .join("");
-  const nextId = items[currentIndex + 1]?.id || `m${currentIndex + 2}`;
-  const selected = value || nextId || "end";
-  return `
-    <select data-route-field="${field}">
-      <option value="next" ${selected === "next" ? "selected" : ""}>Next match</option>
-      ${options}
-      <option value="end" ${selected === "end" ? "selected" : ""}>End review</option>
-    </select>
-  `;
-}
-
-function summary(metrics, responses) {
-  const winner = metrics[0];
-  const buyNow = [...metrics].sort((a, b) => b.immediate - a.immediate)[0];
-  const desire = [...metrics].sort((a, b) => b.noBudget - a.noBudget)[0];
-  const quotes = responses.flatMap((item) => [item.comments, item.usefulDetails]).filter(Boolean);
-  const quote = quotes[quotes.length - 1] || "Complete more reviews to reveal richer customer language.";
-  return `
-    <p class="hint">Recommended first read:</p>
-    <p><strong>${winner.name}</strong> is leading overall based on battle wins, ranking strength, and purchase signals.</p>
-    <p><strong>${buyNow.name}</strong> has the strongest immediate-purchase signal. <strong>${desire.name}</strong> is strongest when price is removed.</p>
-    <p class="quote">"${quote}"</p>
-    <p class="hint">Reward status: ${responses.length} customer review${responses.length === 1 ? "" : "s"} awaiting Sunday Points approval through Smile.io.</p>
-  `;
-}
-
-function buildMetrics(responses) {
-  const usedIds = [...new Set(responses.flatMap((response) => response.ranking || []))];
-  const sourceDesigns = usedIds.length ? usedIds.map((id) => findDesign(id)).filter(Boolean) : allDesigns;
-  const rows = sourceDesigns.map((design) => ({
-    id: design.id,
-    name: design.name,
-    wins: 0,
-    immediate: 0,
-    noBudget: 0,
-    rankScore: 0,
-    score: 0
-  }));
-  const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
-
-  responses.forEach((response) => {
-    response.battles.forEach((battle) => {
-      if (byId[battle.winner]) byId[battle.winner].wins += 1;
-    });
-    response.immediate.forEach((id) => {
-      if (byId[id]) byId[id].immediate += 1;
-    });
-    response.noBudget.forEach((id) => {
-      if (byId[id]) byId[id].noBudget += 1;
-    });
-    response.ranking.forEach((id, index) => {
-      if (byId[id]) byId[id].rankScore += response.ranking.length - index;
-    });
-  });
-
-  rows.forEach((row) => {
-    row.score = row.wins * 7 + row.immediate * 12 + row.noBudget * 9 + row.rankScore * 3;
-  });
-
-  return rows.sort((a, b) => b.score - a.score);
-}
-
-function calculatePoints(currentReview) {
-  let points = 0;
-  points += currentReview.battles.length === activeBattlePairs().length ? 100 : currentReview.battles.length * 5;
-  if (currentReview.comments.trim().length > 30) points += 25;
-  if (currentReview.usefulDetails.trim().length > 30) points += 25;
-  return points;
+function mediaElement(concept) {
+  const media = concept.media[0];
+  if (media.type === "video") {
+    return `<video src="${media.url}" aria-label="${escapeAttr(media.alt)}" muted playsinline loop></video>`;
+  }
+  return `<img src="${media.url}" alt="${escapeAttr(media.alt)}" />`;
 }
 
 function bindEvents() {
-  document.querySelectorAll("[data-view]").forEach((button) => {
+  document.querySelectorAll("[data-route]").forEach((button) => {
     button.addEventListener("click", () => {
-      view = button.dataset.view;
+      route = button.dataset.route;
       render();
     });
   });
 
-  const accessForm = document.querySelector("[data-action='access']");
-  if (accessForm) {
-    accessForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const email = new FormData(accessForm).get("email").toLowerCase().trim();
-      const match = eligibleCustomers.find((item) => item.email === email);
-      if (!match) {
-        accessError = "This email is not on the private pilot list yet.";
-        render();
-        return;
-      }
-      customer = {
-        ...match,
-        ageRange: new FormData(accessForm).get("ageRange")
+  document.querySelectorAll("[data-admin-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      persistVisibleAdminFields();
+      adminSection = button.dataset.adminSection;
+      render();
+    });
+  });
+
+  document.querySelector("[data-action='login']")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const email = new FormData(event.currentTarget).get("email").toLowerCase();
+    member = config.members.find((item) => item.email === email) || { email, name: "Inner Circle Member", tier: "Guest Pilot", segment: "Guest" };
+    member.ageRange = new FormData(event.currentTarget).get("ageRange");
+    participant = freshParticipant();
+    render();
+  });
+
+  document.querySelector("[data-next]")?.addEventListener("click", nextStep);
+
+  document.querySelectorAll("[data-pick]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const campaign = getCampaign();
+      const question = surveyQuestions(campaign)[participant.step];
+      const pair = question.pairs[participant.pairIndex];
+      const answer = {
+        left: pair[0],
+        right: pair[1],
+        winner: button.dataset.pick,
+        reason: document.querySelector("#pairReason")?.value.trim() || "",
+        drivers: [...document.querySelectorAll(".chips input:checked")].map((item) => item.value)
       };
-      localStorage.setItem(sessionKey, JSON.stringify(customer));
-      accessError = "";
-      review = freshReview();
-      review.step = "battle";
+      participant.answers[question.id] ||= [];
+      participant.answers[question.id].push(answer);
+      if (participant.pairIndex + 1 < question.pairs.length) participant.pairIndex += 1;
+      else nextStep();
       render();
     });
-  }
+  });
 
-  document.querySelectorAll("[data-action='battle-choice']").forEach((button) => {
+  document.querySelector("[data-save-rating]")?.addEventListener("click", () => {
+    const question = surveyQuestions(getCampaign())[participant.step];
+    participant.answers[question.id] = Object.fromEntries([...document.querySelectorAll("[data-rating]")].map((row) => [row.dataset.rating, Number(row.querySelector("select").value)]));
+    nextStep();
+  });
+
+  document.querySelectorAll("[data-rank]").forEach((button) => {
     button.addEventListener("click", () => {
-      const node = currentBattleNode();
-      const pair = node.pair;
-      const why = document.querySelector("#battleWhy")?.value || "";
-      const settings = getResearchSettings().battle;
-      if (settings.requireReason && why.trim().length < 3) {
-        document.querySelector("#battleWhy")?.focus();
-        return;
-      }
-      const winnerSide = button.dataset.id === pair[0] ? "left" : "right";
-      const next = winnerSide === "left" ? node.leftNext : node.rightNext;
-      review.battles.push({
-        nodeId: node.id,
-        pair,
-        winner: button.dataset.id,
-        winnerSide,
-        next,
-        reason: why.trim(),
-        confidence: document.querySelector("input[name='battleConfidence']:checked")?.value || "",
-        drivers: [...document.querySelectorAll("input[name='battleDrivers']:checked")].map((item) => item.value)
+      const index = Number(button.dataset.rank);
+      const dir = Number(button.dataset.dir);
+      const next = index + dir;
+      const ranking = participant.ranking;
+      [ranking[index], ranking[next]] = [ranking[next], ranking[index]];
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-choice]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const question = surveyQuestions(getCampaign())[participant.step];
+      participant.answers[question.id] = button.dataset.choice;
+      nextStep();
+    });
+  });
+
+  document.querySelectorAll("[data-multi-pick]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const question = surveyQuestions(getCampaign())[participant.step];
+      const max = question.maxSelections || question.module?.maxSelections || 5;
+      participant.answers[question.id] ||= [];
+      const selected = participant.answers[question.id];
+      const index = selected.indexOf(button.dataset.multiPick);
+      if (index >= 0) selected.splice(index, 1);
+      else if (selected.length < max) selected.push(button.dataset.multiPick);
+      render();
+    });
+  });
+
+  document.querySelector("[data-save-reasons]")?.addEventListener("click", () => {
+    const question = surveyQuestions(getCampaign())[participant.step];
+    participant.answers[question.id] = Object.fromEntries([...document.querySelectorAll("[data-reason-concept]")].map((card) => [
+      card.dataset.reasonConcept,
+      [...card.querySelectorAll("input:checked")].map((input) => input.value)
+    ]));
+    nextStep();
+  });
+
+  document.querySelector("[data-complete]")?.addEventListener("click", () => {
+    const question = surveyQuestions(getCampaign())[participant.step];
+    participant.answers[question.id] = document.querySelector("#finalText").value.trim();
+    completeParticipant();
+  });
+
+  document.querySelector("[data-save-text]")?.addEventListener("click", () => {
+    const question = surveyQuestions(getCampaign())[participant.step];
+    participant.answers[question.id] = document.querySelector("#finalText").value.trim();
+    nextStep();
+  });
+
+  document.querySelector("[data-add-question]")?.addEventListener("click", () => {
+    persistVisibleAdminFields();
+    adminDraft.questions.push({ id: `custom-${Date.now()}`, type: "text", prompt: "What should Cherri know?" });
+    const lastBlock = adminDraft.surveyDefinition.blocks.at(-1);
+    if (lastBlock) lastBlock.questionIds.push(adminDraft.questions.at(-1).id);
+    render();
+  });
+
+  document.querySelectorAll("[data-remove-question]").forEach((button) => {
+    button.addEventListener("click", () => {
+      persistVisibleAdminFields();
+      const removed = adminDraft.questions[Number(button.dataset.removeQuestion)];
+      adminDraft.questions.splice(Number(button.dataset.removeQuestion), 1);
+      adminDraft.surveyDefinition.blocks.forEach((block) => {
+        block.questionIds = block.questionIds.filter((id) => id !== removed?.id);
       });
-      review.battleIndex += 1;
-      if (next && next !== "end" && activeBattleNodes().some((item) => item.id === next)) {
-        review.currentBattleId = next;
-      } else if (next === "next") {
-        review.currentBattleId = `m${review.battleIndex + 1}`;
-      } else {
-        review.step = "immediate";
-      }
       render();
     });
   });
 
-  document.querySelectorAll("[data-step]").forEach((button) => {
+  document.querySelectorAll("[data-add-module]").forEach((button) => {
     button.addEventListener("click", () => {
-      review.step = button.dataset.step;
+      persistVisibleAdminFields();
+      addResearchModule(button.dataset.addModule);
       render();
     });
   });
 
-  document.querySelectorAll("[data-action='toggle-immediate']").forEach((button) => {
-    button.addEventListener("click", () => {
-      toggle(review.immediate, button.dataset.id);
-      render();
-    });
-  });
-
-  document.querySelectorAll("[data-action='toggle-nobudget']").forEach((button) => {
-    button.addEventListener("click", () => {
-      toggle(review.noBudget, button.dataset.id);
-      render();
-    });
-  });
-
-  document.querySelector("[data-action='purchase-next']")?.addEventListener("click", () => {
-    review.purchaseIntent = readPurchaseRows();
-    review.step = "ranking";
+  document.querySelector("[data-load-physical-template]")?.addEventListener("click", () => {
+    persistVisibleAdminFields();
+    applyPhysicalFocusGroupTemplate();
     render();
   });
 
-  document.querySelectorAll("[data-action='rank-up'], [data-action='rank-down']").forEach((button) => {
+  document.querySelectorAll("[data-remove-module]").forEach((button) => {
     button.addEventListener("click", () => {
-      const index = Number(button.dataset.index);
-      const direction = button.dataset.action === "rank-up" ? -1 : 1;
-      moveRank(index, direction);
+      persistVisibleAdminFields();
+      const modules = researchModules(adminDraft);
+      modules.splice(Number(button.dataset.removeModule), 1);
+      applyResearchModules(modules);
       render();
     });
   });
 
-  document.querySelector("[data-action='consent']")?.addEventListener("change", (event) => {
-    review.consent = event.target.checked;
+  document.querySelectorAll("[data-move-module]").forEach((button) => {
+    button.addEventListener("click", () => {
+      persistVisibleAdminFields();
+      const index = Number(button.dataset.moveModule);
+      const nextIndex = index + Number(button.dataset.dir);
+      const modules = researchModules(adminDraft);
+      if (nextIndex < 0 || nextIndex >= modules.length) return;
+      [modules[index], modules[nextIndex]] = [modules[nextIndex], modules[index]];
+      applyResearchModules(modules);
+      render();
+    });
   });
 
-  document.querySelector("[data-action='complete']")?.addEventListener("click", () => {
-    review.comments = document.querySelector("#comments")?.value.trim() || "";
-    review.usefulDetails = document.querySelector("#usefulDetails")?.value.trim() || "";
-    review.completedAt = new Date().toISOString();
-    const responses = getResponses();
-    responses.push({
-      sessionId: review.sessionId,
-      sessionName: currentSession().name,
-      customerEmail: customer.email,
-      ageRange: customer.ageRange,
-      shopifyId: customer.shopifyId,
-      smileId: customer.smileId,
-      tier: customer.tier,
-      battles: review.battles,
-      immediate: review.immediate,
-      purchaseIntent: review.purchaseIntent,
-      ranking: review.ranking,
-      noBudget: review.noBudget,
-      comments: review.comments,
-      usefulDetails: review.usefulDetails,
-      consent: review.consent,
-      points: calculatePoints(review),
-      rewardStatus: "Pending founder approval",
-      completedAt: review.completedAt
-    });
-    saveResponses(responses);
-    review.step = "complete";
+  document.querySelector("[data-add-block]")?.addEventListener("click", () => {
+    persistVisibleAdminFields();
+    const id = `block-${Date.now()}`;
+    adminDraft.surveyDefinition.blocks.push({ id, title: "New block", questionIds: [], randomisation: { mode: "none", balanceLeftRight: false } });
     render();
   });
 
-  document.querySelector("[data-action='new-review']")?.addEventListener("click", () => {
-    review = freshReview();
-    review.step = "access";
-    customer = null;
-    localStorage.removeItem(sessionKey);
-    render();
-  });
-
-  document.querySelector("[data-action='reset-data']")?.addEventListener("click", () => {
-    if (confirm("Clear all local pilot responses?")) {
-      saveResponses([]);
-      render();
-    }
-  });
-
-  document.querySelectorAll("[data-action='reward-status']").forEach((button) => {
+  document.querySelectorAll("[data-remove-block]").forEach((button) => {
     button.addEventListener("click", () => {
-      const responses = getResponses();
-      const index = Number(button.dataset.index);
-      if (!responses[index]) return;
-      responses[index].rewardStatus = button.dataset.status;
-      responses[index].rewardUpdatedAt = new Date().toISOString();
-      saveResponses(responses);
+      persistVisibleAdminFields();
+      const removed = adminDraft.surveyDefinition.blocks[Number(button.dataset.removeBlock)];
+      adminDraft.surveyDefinition.blocks.splice(Number(button.dataset.removeBlock), 1);
+      adminDraft.surveyDefinition.flow = adminDraft.surveyDefinition.flow.filter((step) => step.ref !== removed?.id && step.then?.[0]?.ref !== removed?.id);
       render();
     });
   });
 
-  document.querySelector("[data-action='export']")?.addEventListener("click", () => {
-    const payload = JSON.stringify(getResponses(), null, 2);
-    const blob = new Blob([payload], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
+  document.querySelector("[data-add-flow-block]")?.addEventListener("click", () => {
+    persistVisibleAdminFields();
+    const firstBlock = adminDraft.surveyDefinition.blocks[0]?.id || "";
+    adminDraft.surveyDefinition.flow.push({ type: "block", ref: firstBlock });
+    render();
+  });
+
+  document.querySelectorAll("[data-remove-flow]").forEach((button) => {
+    button.addEventListener("click", () => {
+      persistVisibleAdminFields();
+      adminDraft.surveyDefinition.flow.splice(Number(button.dataset.removeFlow), 1);
+      render();
+    });
+  });
+
+  document.querySelector("[data-add-embedded-data]")?.addEventListener("click", () => {
+    persistVisibleAdminFields();
+    adminDraft.surveyDefinition.embeddedData.push({ key: "newField", value: "" });
+    render();
+  });
+
+  document.querySelectorAll("[data-remove-embedded]").forEach((button) => {
+    button.addEventListener("click", () => {
+      persistVisibleAdminFields();
+      adminDraft.surveyDefinition.embeddedData.splice(Number(button.dataset.removeEmbedded), 1);
+      render();
+    });
+  });
+
+  document.querySelector("[data-add-quota]")?.addEventListener("click", () => {
+    persistVisibleAdminFields();
+    adminDraft.surveyDefinition.quotas.push({ id: `quota-${Date.now()}`, segment: "VIP", targetResponses: 25 });
+    render();
+  });
+
+  document.querySelectorAll("[data-remove-quota]").forEach((button) => {
+    button.addEventListener("click", () => {
+      persistVisibleAdminFields();
+      adminDraft.surveyDefinition.quotas.splice(Number(button.dataset.removeQuota), 1);
+      render();
+    });
+  });
+
+  document.querySelector("[data-save-campaign]")?.addEventListener("click", () => {
+    persistVisibleAdminFields();
+    const next = readState();
+    next.campaigns = next.campaigns.map((campaign) => campaign.id === adminDraft.id ? structuredClone(adminDraft) : campaign);
+    writeState(next);
+    participant = freshParticipant();
+    render();
+  });
+
+  document.querySelectorAll("[data-concept-upload]").forEach((uploadInput) => {
+    uploadInput.addEventListener("change", () => importConceptFiles([...uploadInput.files]));
+  });
+  document.querySelectorAll("[data-upload-zone]").forEach((uploadZone) => {
+    uploadZone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      uploadZone.classList.add("is-dragging");
+    });
+    uploadZone.addEventListener("dragleave", () => uploadZone.classList.remove("is-dragging"));
+    uploadZone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      uploadZone.classList.remove("is-dragging");
+      importConceptFiles([...event.dataTransfer.files]);
+    });
+  });
+
+  document.querySelector("[data-export]")?.addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(readState(), null, 2)], { type: "application/json" });
     const link = document.createElement("a");
-    link.href = url;
-    link.download = "sunday-circle-feedback.json";
+    link.href = URL.createObjectURL(blob);
+    link.download = "sunday-staples-inner-circle-export.json";
     link.click();
-    URL.revokeObjectURL(url);
+    URL.revokeObjectURL(link.href);
+  });
+}
+
+function persistVisibleAdminFields() {
+  const form = document.querySelector("[data-admin-form]");
+  if (!form || !adminDraft) return;
+  const data = new FormData(form);
+  if (data.has("title")) adminDraft.title = data.get("title");
+  if (data.has("audience")) adminDraft.audience = data.get("audience");
+  if (data.has("reward")) adminDraft.reward = data.get("reward");
+  if (data.has("status")) adminDraft.status = data.get("status");
+  const checkedConcepts = [...document.querySelectorAll(".library-card input:checked")].map((input) => input.value);
+  if (checkedConcepts.length || adminSection === "concepts") adminDraft.conceptIds = checkedConcepts;
+  persistSurveyDefinitionFields();
+}
+
+function persistSurveyDefinitionFields() {
+  const moduleRows = [...document.querySelectorAll("[data-module-index]")];
+  if (moduleRows.length) {
+    applyResearchModules(moduleRows.map(readModuleRow));
+  }
+
+  document.querySelectorAll("[data-embedded-index]").forEach((row) => {
+    const item = adminDraft.surveyDefinition.embeddedData[Number(row.dataset.embeddedIndex)];
+    if (!item) return;
+    item.key = row.querySelector("[data-embedded-field='key']").value.trim();
+    item.value = row.querySelector("[data-embedded-field='value']").value.trim();
   });
 
-  document.querySelector("[data-action='select-founder-session']")?.addEventListener("change", (event) => {
-    localStorage.setItem(founderSessionKey, event.target.value);
-    render();
+  document.querySelectorAll("[data-quota-index]").forEach((row) => {
+    const item = adminDraft.surveyDefinition.quotas[Number(row.dataset.quotaIndex)];
+    if (!item) return;
+    item.id = row.querySelector("[data-quota-field='id']").value.trim();
+    item.segment = row.querySelector("[data-quota-field='segment']").value.trim();
+    item.targetResponses = Number(row.querySelector("[data-quota-field='targetResponses']").value || 0);
   });
 
-  document.querySelector("[data-action='save-research-settings']")?.addEventListener("click", () => {
-    saveResearchSettings(readResearchControls());
-    render();
-  });
+  const score = adminDraft.surveyDefinition.scoring;
+  const scoreValue = (field) => document.querySelector(`[data-score-field="${field}"]`);
+  if (scoreValue("pairwiseWeight")) {
+    score.pairwiseWeight = Number(scoreValue("pairwiseWeight").value || 0);
+    score.buyingIntentWeight = Number(scoreValue("buyingIntentWeight").value || 0);
+    score.rankingWeight = Number(scoreValue("rankingWeight").value || 0);
+    score.thresholds.buy = Number(scoreValue("buy").value || 0);
+    score.thresholds.tweak = Number(scoreValue("tweak").value || 0);
+  }
 
-  document.querySelector("[data-action='reset-research-settings']")?.addEventListener("click", () => {
-    localStorage.removeItem(researchSettingsKey);
-    saveResearchSettings(defaultResearchSettings());
-    render();
-  });
+  const exportFields = document.querySelector("[data-export-fields]");
+  if (exportFields) adminDraft.surveyDefinition.exportFields = splitList(exportFields.value.replaceAll("\n", ","));
 
-  document.querySelector("[data-action='save-bracket']")?.addEventListener("click", () => {
-    const sessionId = founderSessionId();
-    const brackets = getCustomBrackets();
-    brackets[sessionId] = readBracketRows();
-    saveCustomBrackets(brackets);
-    render();
-  });
+  const ruleValue = (field) => document.querySelector(`[data-rule-field="${field}"]`);
+  if (ruleValue("targetSegment")) {
+    adminDraft.surveyDefinition.rules = {
+      randomiseConcepts: ruleValue("randomiseConcepts").checked,
+      balanceLeftRight: ruleValue("balanceLeftRight").checked,
+      requireReasons: ruleValue("requireReasons").checked,
+      targetSegment: ruleValue("targetSegment").value.trim(),
+      maxConcepts: Number(ruleValue("maxConcepts").value || adminDraft.conceptIds.length),
+      rewardTrigger: ruleValue("rewardTrigger").value
+    };
+  }
+}
 
-  document.querySelector("[data-action='add-match']")?.addEventListener("click", () => {
-    const sessionId = founderSessionId();
-    const designs = sessionDesigns(sessionId);
-    if (designs.length < 2) return;
-    const brackets = getCustomBrackets();
-    brackets[sessionId] = readBracketRows();
-    const nextIndex = brackets[sessionId].length + 1;
-    brackets[sessionId].push({
-      id: `m${nextIndex}`,
-      pair: [designs[0].id, designs[1].id],
-      leftNext: "end",
-      rightNext: "end"
-    });
-    saveCustomBrackets(brackets);
-    render();
-  });
+function readModuleRow(row) {
+  const field = (name) => row.querySelector(`[data-module-field="${name}"]`);
+  const type = field("type").value;
+  const base = defaultModule(type, adminDraft);
+  const scaleInput = field("scale");
+  const optionsInput = field("options");
+  const reasonsInput = field("reasons");
+  const selectedConcepts = [...row.querySelectorAll("[data-module-concept]:checked")].map((input) => input.value);
+  return {
+    ...base,
+    type,
+    prompt: field("prompt").value.trim() || base.prompt,
+    required: field("required")?.checked || false,
+    collectReason: field("collectReason")?.checked || false,
+    collectDrivers: field("collectDrivers")?.checked || false,
+    scale: scaleInput ? splitList(scaleInput.value) : base.scale,
+    options: optionsInput ? splitList(optionsInput.value) : base.options,
+    reasons: reasonsInput ? splitList(reasonsInput.value) : base.reasons,
+    conceptIds: selectedConcepts.length ? selectedConcepts : base.conceptIds
+  };
+}
 
-  document.querySelector("[data-action='round-16']")?.addEventListener("click", () => {
-    const sessionId = founderSessionId();
-    const brackets = getCustomBrackets();
-    brackets[sessionId] = defaultBracketForSession(sessionId);
-    saveCustomBrackets(brackets);
-    render();
-  });
+function addResearchModule(type) {
+  const modules = researchModules(adminDraft);
+  modules.push(defaultModule(type, adminDraft));
+  applyResearchModules(modules);
+}
 
-  document.querySelector("[data-action='clear-bracket']")?.addEventListener("click", () => {
-    const sessionId = founderSessionId();
-    const brackets = getCustomBrackets();
-    delete brackets[sessionId];
-    saveCustomBrackets(brackets);
-    render();
-  });
+function applyPhysicalFocusGroupTemplate() {
+  applyResearchModules([
+    defaultModule("champion-battle", adminDraft),
+    defaultModule("set-ranking", adminDraft),
+    defaultModule("aspiration-pick", adminDraft),
+    defaultModule("reason-diagnosis", adminDraft)
+  ]);
+  adminDraft.surveyDefinition.rules = {
+    randomiseConcepts: true,
+    balanceLeftRight: true,
+    requireReasons: false,
+    targetSegment: adminDraft.audience || "VIP customers in Singapore",
+    maxConcepts: adminDraft.conceptIds.length,
+    rewardTrigger: "completion"
+  };
+  adminDraft.surveyDefinition.scoring = {
+    pairwiseWeight: 35,
+    buyingIntentWeight: 0,
+    rankingWeight: 35,
+    thresholds: { buy: 65, tweak: 42 },
+    aspirationWeight: 20,
+    reasonWeight: 10
+  };
+}
 
-  document.querySelectorAll("[data-action='remove-match']").forEach((button) => {
-    button.addEventListener("click", () => {
-      const sessionId = founderSessionId();
-      const brackets = getCustomBrackets();
-      const rows = readBracketRows();
-      rows.splice(Number(button.dataset.index), 1);
-      brackets[sessionId] = rows;
-      saveCustomBrackets(brackets);
-      render();
-    });
-  });
+function applyResearchModules(modules) {
+  const intro = adminDraft.questions.find((question) => question.type === "intro") || {
+    id: "intro",
+    type: "intro",
+    required: true,
+    analyticsKey: "intro_viewed",
+    eyebrow: "Private design council",
+    title: "Help shape the next Sunday Staples launch",
+    prompt: "Help shape the next Sunday Staples launch",
+    body: "Review upcoming shoe concepts and tell us what deserves to be bought, tweaked, or rejected."
+  };
 
-  document.querySelectorAll("[data-bracket-side]").forEach((select) => {
-    select.addEventListener("change", () => updateBracketThumb(select.closest("[data-bracket-row]"), select.dataset.bracketSide));
-  });
+  const questions = [intro, ...modules.map((module, index) => moduleToQuestion(module, index))];
+  const blocks = [
+    { id: "welcome-block", title: "Welcome", questionIds: ["intro"] },
+    ...modules.map((module, index) => ({
+      id: `module-${index + 1}-${module.type}`,
+      title: module.label,
+      questionIds: [moduleToQuestionId(module, index)],
+      randomisation: {
+        mode: adminDraft.surveyDefinition.rules?.randomiseConcepts ? "randomize_questions" : "none",
+        balanceLeftRight: adminDraft.surveyDefinition.rules?.balanceLeftRight !== false
+      }
+    }))
+  ];
 
-  document.querySelectorAll("[data-bracket-row]").forEach((row) => {
-    row.addEventListener("dragstart", (event) => {
-      event.dataTransfer.setData("text/plain", row.dataset.index || [...row.parentElement.children].indexOf(row));
-      row.classList.add("dragging");
-    });
-    row.addEventListener("dragend", () => row.classList.remove("dragging"));
-    row.addEventListener("dragover", (event) => event.preventDefault());
-    row.addEventListener("drop", (event) => {
-      event.preventDefault();
-      const rows = [...row.parentElement.querySelectorAll("[data-bracket-row]")];
-      const from = Number(event.dataTransfer.getData("text/plain"));
-      const to = rows.indexOf(row);
-      if (Number.isNaN(from) || to < 0 || from === to) return;
-      const sessionId = founderSessionId();
-      const brackets = getCustomBrackets();
-      const next = readBracketRows();
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      brackets[sessionId] = next.map((item, index) => ({ ...item, id: `m${index + 1}` }));
-      saveCustomBrackets(brackets);
-      render();
-    });
-  });
+  adminDraft.questions = questions;
+  adminDraft.surveyDefinition.blocks = blocks;
+  adminDraft.surveyDefinition.flow = blocks.map((block) => ({ type: "block", ref: block.id }));
+  adminDraft.surveyDefinition.embeddedData = [
+    { key: "brandId", value: adminDraft.brandId },
+    { key: "campaignId", value: adminDraft.id },
+    { key: "researchModules", value: modules.map((module) => module.type).join(",") },
+    { key: "targetSegment", value: adminDraft.surveyDefinition.rules?.targetSegment || adminDraft.audience }
+  ];
+  adminDraft.surveyDefinition.exportFields = [
+    "campaignId",
+    "member.segment",
+    "module.type",
+    "answers",
+    "decision.score",
+    "submittedAt"
+  ];
+}
 
-  document.querySelector("[data-action='save-group-rules']")?.addEventListener("click", () => {
-    const sessionId = founderSessionId();
-    const rules = getGroupRules();
-    rules[sessionId] = rules[sessionId] || {};
-    saveGroupRules(rules);
-    render();
-  });
+function moduleToQuestionId(module, index) {
+  return `${module.type}-${index + 1}`;
+}
 
-  document.querySelector("[data-action='copy-bracket-to-groups']")?.addEventListener("click", () => {
-    const sessionId = founderSessionId();
-    const rules = getGroupRules();
-    const rows = readBracketRows();
-    rules[sessionId] = Object.fromEntries(ageRanges.map((range) => [range, cloneBattleItems(rows)]));
-    saveGroupRules(rules);
-    render();
-  });
-
-  document.querySelector("[data-action='clear-group-rules']")?.addEventListener("click", () => {
-    const sessionId = founderSessionId();
-    const rules = getGroupRules();
-    delete rules[sessionId];
-    saveGroupRules(rules);
-    render();
-  });
-
-  document.querySelectorAll("[data-action='assign-current-bracket']").forEach((button) => {
-    button.addEventListener("click", () => {
-      const sessionId = founderSessionId();
-      const rules = getGroupRules();
-      rules[sessionId] = rules[sessionId] || {};
-      rules[sessionId][button.dataset.age] = cloneBattleItems(readBracketRows());
-      saveGroupRules(rules);
-      render();
-    });
-  });
-
-  document.querySelectorAll("[data-action='clear-age-rule']").forEach((button) => {
-    button.addEventListener("click", () => {
-      const sessionId = founderSessionId();
-      const rules = getGroupRules();
-      if (rules[sessionId]) delete rules[sessionId][button.dataset.age];
-      saveGroupRules(rules);
-      render();
-    });
-  });
-
-  document.querySelector("[data-action='comparison-mode']")?.addEventListener("change", (event) => {
-    localStorage.setItem(comparisonModeKey, event.target.checked ? "on" : "off");
-    updateRemoteState({ comparisonMode: event.target.checked ? "on" : "off" }, "comparison-mode-updated");
-    render();
-  });
-
-  document.querySelector("[data-action='save-image-settings']")?.addEventListener("click", () => {
-    saveImageSettings(readImageControlRows());
-    render();
-  });
-
-  document.querySelector("[data-action='reset-image-settings']")?.addEventListener("click", () => {
-    if (confirm("Reset all image crop, description, and harmonisation settings?")) {
-      localStorage.removeItem(imageSettingsKey);
-      localStorage.removeItem(comparisonModeKey);
-      updateRemoteState({ imageSettings: {}, comparisonMode: "off" }, "image-settings-reset");
-      render();
+function moduleToQuestion(module, index) {
+  const id = moduleToQuestionId(module, index);
+  const question = {
+    id,
+    type: module.questionType,
+    required: module.required,
+    analyticsKey: id,
+    prompt: module.prompt,
+    displayLogic: null,
+    validation: module.validation || null,
+    module: {
+      type: module.type,
+      label: module.label,
+      prompt: module.prompt,
+      collectReason: module.collectReason,
+      collectDrivers: module.collectDrivers,
+      conceptIds: module.conceptIds,
+      scale: module.scale,
+      options: module.options
     }
-  });
-
-  document.querySelectorAll("[data-image-control] input[type='range']").forEach((input) => {
-    input.addEventListener("input", () => updateControlPreview(input.closest("[data-image-control]")));
-  });
-
-  document.querySelectorAll("[data-aspect]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const card = button.closest("[data-image-control]");
-      card.querySelectorAll("[data-aspect]").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      setCropBox(card, boxForAspect(button.dataset.aspect));
-      updateControlPreview(card);
-    });
-  });
-
-  document.querySelectorAll("[data-crop-stage]").forEach((stage) => {
-    let dragging = false;
-    let startX = 0;
-    let startY = 0;
-    let mode = "move";
-    let startBox = null;
-
-    const card = stage.closest("[data-image-control]");
-
-    stage.addEventListener("pointerdown", (event) => {
-      const handle = event.target.closest("[data-crop-handle]");
-      if (!handle) return;
-      dragging = true;
-      startX = event.clientX;
-      startY = event.clientY;
-      mode = handle.dataset.cropHandle;
-      startBox = getCropBox(card);
-      stage.setPointerCapture(event.pointerId);
-      stage.classList.add("is-dragging");
-    });
-
-    stage.addEventListener("pointermove", (event) => {
-      if (!dragging) return;
-      const rect = stage.getBoundingClientRect();
-      const deltaX = ((event.clientX - startX) / rect.width) * 100;
-      const deltaY = ((event.clientY - startY) / rect.height) * 100;
-      setCropBox(card, resizeCropBox(startBox, mode, deltaX, deltaY));
-      updateControlPreview(card);
-    });
-
-    stage.addEventListener("pointerup", (event) => {
-      dragging = false;
-      stage.releasePointerCapture(event.pointerId);
-      stage.classList.remove("is-dragging");
-    });
-
-    stage.addEventListener("pointercancel", () => {
-      dragging = false;
-      stage.classList.remove("is-dragging");
-    });
-  });
+  };
+  if (module.questionType === "pairwise") {
+    question.pairs = pairConcepts(module.conceptIds || adminDraft.conceptIds);
+    question.collectReason = module.collectReason;
+    question.collectDrivers = module.collectDrivers;
+  }
+  if (module.questionType === "rating") question.scale = module.scale;
+  if (module.questionType === "choice") question.options = module.options;
+  if (module.questionType === "multi-select") question.maxSelections = module.maxSelections || 5;
+  if (module.questionType === "reason-pool") question.reasons = module.reasons || defaultReasonPool();
+  return question;
 }
 
-function readBracketRows() {
-  return [...document.querySelectorAll("[data-bracket-row]")]
-    .map((row, index) => {
-      const left = row.querySelector("[data-bracket-side='left']").value;
-      const right = row.querySelector("[data-bracket-side='right']").value;
-      return {
-        id: row.querySelector("[data-route-field='id']")?.value || `m${index + 1}`,
-        pair: [left, right],
-        leftNext: row.querySelector("[data-route-field='leftNext']")?.value || "next",
-        rightNext: row.querySelector("[data-route-field='rightNext']")?.value || "next"
-      };
-    })
-    .filter((item) => item.pair[0] && item.pair[1] && item.pair[0] !== item.pair[1])
-    .map((item, index, items) => ({
-      ...item,
-      id: `m${index + 1}`,
-      leftNext: normaliseRoute(item.leftNext, index, items.length),
-      rightNext: normaliseRoute(item.rightNext, index, items.length)
-    }));
+function pairConcepts(conceptIds) {
+  const ids = [...conceptIds];
+  const pairs = [];
+  for (let index = 0; index < ids.length - 1; index += 2) {
+    pairs.push([ids[index], ids[index + 1]]);
+  }
+  if (!pairs.length && ids.length >= 2) pairs.push([ids[0], ids[1]]);
+  return pairs;
 }
 
-function normaliseRoute(route, index, total) {
-  if (route === "end") return "end";
-  if (route === "next") return index + 1 < total ? `m${index + 2}` : "end";
-  return route;
+function splitList(value) {
+  return String(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
-function cloneBattleItems(items) {
-  return items.map((item) => Array.isArray(item)
-    ? [...item]
-    : {
-        ...item,
-        pair: [...item.pair]
+async function importConceptFiles(files) {
+  const mediaFiles = files.filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"));
+  if (!mediaFiles.length) return;
+  const next = readState();
+  next.uploadedConcepts ||= [];
+  const imported = await Promise.all(mediaFiles.map(fileToConcept));
+  next.uploadedConcepts.push(...imported);
+  const campaignIndex = next.campaigns.findIndex((campaign) => campaign.id === activeCampaignId);
+  if (campaignIndex >= 0) {
+    const campaign = next.campaigns[campaignIndex];
+    campaign.conceptIds = [...new Set([...campaign.conceptIds, ...imported.map((concept) => concept.id)])];
+  }
+  writeState(next);
+  adminDraft = null;
+  render();
+}
+
+function fileToConcept(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const id = `upload-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const cleanName = file.name.replace(/\.[^.]+$/, "").replaceAll(/[-_]+/g, " ").trim();
+      resolve({
+        id,
+        brandId: "sunday-staples",
+        factoryCode: `UPLOAD-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}`,
+        name: titleCase(cleanName || "Uploaded Concept"),
+        category: "Uploaded Concept",
+        targetSeason: "Unassigned",
+        priceBand: "To be confirmed",
+        material: "To be confirmed",
+        colorway: "To be confirmed",
+        media: [
+          {
+            type: file.type.startsWith("video/") ? "video" : "image",
+            url: reader.result,
+            alt: cleanName || file.name,
+            fileName: file.name,
+            mimeType: file.type,
+            uploadedAt: new Date().toISOString()
+          }
+        ],
+        notes: "Uploaded through the Inner Circle admin concept intake."
       });
-}
-
-function readImageControlRows() {
-  const settings = {};
-  document.querySelectorAll("[data-image-control]").forEach((card) => {
-    const id = card.dataset.imageControl;
-    const field = (name) => card.querySelector(`[data-image-field='${name}']`);
-    settings[id] = {
-      x: Number(field("x").value),
-      y: Number(field("y").value),
-      zoom: Number(field("zoom").value),
-      cropLeft: Number(field("cropLeft").value),
-      cropTop: Number(field("cropTop").value),
-      cropWidth: Number(field("cropWidth").value),
-      cropHeight: Number(field("cropHeight").value),
-      aspect: card.querySelector("[data-aspect].active")?.dataset.aspect || "1:1",
-      description: field("description").value.slice(0, 30),
-      harmonise: field("harmonise").checked
     };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
-  return settings;
 }
 
-function readPurchaseRows() {
-  const rows = {};
-  document.querySelectorAll("[data-purchase-row]").forEach((row) => {
-    const id = row.dataset.purchaseRow;
-    const field = (name) => row.querySelector(`[data-purchase-field='${name}']`);
-    rows[id] = {
-      urgency: field("urgency")?.value || "",
-      barrier: field("barrier")?.value || "",
-      priceFeel: field("priceFeel")?.value || "",
-      occasion: field("occasion")?.value.trim().slice(0, 32) || ""
-    };
+function titleCase(value) {
+  return value.replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+}
+
+function nextStep() {
+  const questions = surveyQuestions(getCampaign());
+  if (participant.step + 1 >= questions.length) {
+    completeParticipant();
+    return;
+  }
+  participant.step += 1;
+  render();
+}
+
+function completeParticipant() {
+  const next = readState();
+  next.responses.push({
+    id: crypto.randomUUID(),
+    campaignId: getCampaign().id,
+    member,
+    answers: { ...participant.answers, ranking: participant.ranking },
+    submittedAt: new Date().toISOString()
   });
-  return rows;
+  writeState(next);
+  participant.completed = true;
+  render();
 }
 
-function readResearchControls() {
-  const checked = (name) => Boolean(document.querySelector(`[data-research-field='${name}']`)?.checked);
-  const value = (name) => document.querySelector(`[data-research-field='${name}']`)?.value.trim();
-  return {
-    battle: {
-      enabled: true,
-      captureConfidence: checked("battle-confidence"),
-      captureDrivers: checked("battle-drivers"),
-      requireReason: checked("battle-reason"),
-      prompt: value("battle-prompt") || defaultResearchSettings().battle.prompt
-    },
-    purchase: {
-      enabled: checked("purchase-enabled"),
-      captureUrgency: checked("purchase-urgency"),
-      captureBarrier: checked("purchase-barrier"),
-      capturePriceFeel: checked("purchase-price"),
-      captureOccasion: checked("purchase-occasion"),
-      prompt: value("purchase-prompt") || defaultResearchSettings().purchase.prompt
-    }
-  };
+function isLastQuestion() {
+  const questions = surveyQuestions(getCampaign());
+  return participant.step >= questions.length - 1;
 }
 
-function updateControlPreview(card) {
-  if (!card) return;
-  const preview = card.querySelector(".control-preview");
-  const x = card.querySelector("[data-image-field='x']").value;
-  const y = card.querySelector("[data-image-field='y']").value;
-  const zoom = card.querySelector("[data-image-field='zoom']").value;
-  const box = getCropBox(card);
-  const aspect = card.querySelector("[data-aspect].active")?.dataset.aspect || "1:1";
-  const stage = card.querySelector("[data-crop-stage]");
-  const right = Math.max(0, 100 - box.left - box.width);
-  const bottom = Math.max(0, 100 - box.top - box.height);
-  preview.style.setProperty("--image-x", `${x}%`);
-  preview.style.setProperty("--image-y", `${y}%`);
-  preview.style.setProperty("--image-zoom", `${zoom}%`);
-  preview.style.setProperty("--image-scale", `${Number(zoom) / 100}`);
-  preview.style.setProperty("--clip-top", `${box.top}%`);
-  preview.style.setProperty("--clip-right", `${right}%`);
-  preview.style.setProperty("--clip-bottom", `${bottom}%`);
-  preview.style.setProperty("--clip-left", `${box.left}%`);
-  preview.style.setProperty("--crop-aspect", aspectValue(aspect));
-  stage.style.setProperty("--crop-left", `${box.left}%`);
-  stage.style.setProperty("--crop-top", `${box.top}%`);
-  stage.style.setProperty("--crop-width", `${box.width}%`);
-  stage.style.setProperty("--crop-height", `${box.height}%`);
-  stage.style.setProperty("--crop-aspect", aspectValue(aspect));
+function findConcept(id) {
+  return state().concepts.find((concept) => concept.id === id);
 }
 
-function getCropBox(card) {
-  const field = (name) => card.querySelector(`[data-image-field='${name}']`);
-  return {
-    left: Number(field("cropLeft").value),
-    top: Number(field("cropTop").value),
-    width: Number(field("cropWidth").value),
-    height: Number(field("cropHeight").value)
-  };
-}
-
-function setCropBox(card, box) {
-  card.querySelector("[data-image-field='cropLeft']").value = round(box.left);
-  card.querySelector("[data-image-field='cropTop']").value = round(box.top);
-  card.querySelector("[data-image-field='cropWidth']").value = round(box.width);
-  card.querySelector("[data-image-field='cropHeight']").value = round(box.height);
-}
-
-function boxForAspect(aspect) {
-  const presets = {
-    "1:1": { width: 84, height: 84 },
-    "4:6": { width: 56, height: 84 },
-    "6:4": { width: 84, height: 56 },
-    "4:5": { width: 67.2, height: 84 }
-  };
-  const size = presets[aspect] || presets["1:1"];
-  return {
-    left: (100 - size.width) / 2,
-    top: (100 - size.height) / 2,
-    width: size.width,
-    height: size.height
-  };
-}
-
-function resizeCropBox(start, mode, dx, dy) {
-  const min = 18;
-  let left = start.left;
-  let top = start.top;
-  let width = start.width;
-  let height = start.height;
-
-  if (mode === "move") {
-    left = clamp(start.left + dx, 0, 100 - width);
-    top = clamp(start.top + dy, 0, 100 - height);
-  }
-  if (mode.includes("w")) {
-    left = clamp(start.left + dx, 0, start.left + start.width - min);
-    width = start.width + (start.left - left);
-  }
-  if (mode.includes("e")) {
-    width = clamp(start.width + dx, min, 100 - left);
-  }
-  if (mode.includes("n")) {
-    top = clamp(start.top + dy, 0, start.top + start.height - min);
-    height = start.height + (start.top - top);
-  }
-  if (mode.includes("s")) {
-    height = clamp(start.height + dy, min, 100 - top);
-  }
-
-  return { left, top, width, height };
-}
-
-function round(value) {
-  return Math.round(value * 10) / 10;
-}
-
-function updateBracketThumb(row, side) {
-  const id = row.querySelector(`[data-bracket-side='${side}']`).value;
-  const design = findDesign(id);
-  const thumb = row.querySelector(`[data-thumb-side='${side}']`);
-  if (!design || !thumb) return;
-  thumb.src = design.image;
-  thumb.alt = design.name;
-  thumb.setAttribute("style", imageStyle(design));
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function toggle(list, id) {
-  const index = list.indexOf(id);
-  if (index >= 0) list.splice(index, 1);
-  else list.push(id);
-}
-
-function moveRank(index, direction) {
-  const next = index + direction;
-  if (next < 0 || next >= review.ranking.length) return;
-  const copy = [...review.ranking];
-  const item = copy[index];
-  copy[index] = copy[next];
-  copy[next] = item;
-  review.ranking = copy;
+function escapeAttr(value) {
+  return String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
 }
 
 render();
-loadRemoteState();
