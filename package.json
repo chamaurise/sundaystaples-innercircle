@@ -1,6 +1,8 @@
 {
+  "name": "sundaystaples-innercircle",
+  "version": "0.2.0",
+  "private": true,
   "scripts": {
     "start": "node server.js"
-  },
-  "dependencies": {}
+  }
 }
