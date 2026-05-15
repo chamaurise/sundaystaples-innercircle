@@ -1,11 +1,13 @@
-const KEY = "sunday-staples-inner-circle-state-v1";
+const KEY = "sunday-circle-state-v1";
 
 const emptyState = {
-  campaigns: [],
-  uploadedConcepts: [],
-  conceptEdits: {},
   responses: [],
-  updatedAt: null
+  brackets: {},
+  groupRules: {},
+  imageSettings: {},
+  comparisonMode: "off",
+  updatedAt: null,
+  audit: []
 };
 
 module.exports = async function handler(request, response) {
@@ -17,7 +19,7 @@ module.exports = async function handler(request, response) {
     response.end(JSON.stringify({
       ok: request.method === "GET",
       setupRequired: true,
-      message: "Shared persistence requires Vercel KV or another Redis-compatible store.",
+      message: "Connect Vercel KV/Redis to enable shared employee pilot data.",
       state: null
     }));
     return;
@@ -75,7 +77,7 @@ function readJson(request) {
     let data = "";
     request.on("data", (chunk) => {
       data += chunk;
-      if (data.length > 5_000_000) {
+      if (data.length > 4_000_000) {
         reject(new Error("Payload too large"));
         request.destroy();
       }
