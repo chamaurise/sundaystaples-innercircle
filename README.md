@@ -1,59 +1,42 @@
-# Sunday Circle
+# AI-powered Closed Feedback Loop System
 
-Private Sunday Staples design-battle prototype for friends, employees, and top-tier customers.
+Private Sunday Staples prototype for collecting structured design feedback from employees, friends, and selected customers.
 
 ## What This Version Does
 
-- Shows invited users a private Sunday Circle review flow.
-- Supports 15 shoe concepts.
-- Lets the founder crop and label images.
-- Lets the founder build bracket matchups and logic-tree routes.
-- Supports customer group assignment by age range.
-- Tracks rewards and feedback locally in the browser.
-
-## Online Pilot Storage
-
-This version includes a Vercel API route at `api/state.js`.
-
-For shared employee testing, connect Vercel KV or Vercel Redis to the project so these environment variables are available:
-
-- `KV_REST_API_URL`
-- `KV_REST_API_TOKEN`
-
-Once connected, the Founder Dashboard syncs:
-
-- responses
-- reward approval status
-- bracket logic trees
-- group assignment rules
-- image crop and asset settings
-- comparison mode
-
-If KV is not connected, the app falls back to browser storage and shows a setup warning in the Founder Dashboard.
+- Provides an Admin area for preparing survey sessions.
+- Supports a central shoe concept repository with image upload, labels, pricing, tags, and crop controls.
+- Lets Admin users configure First Impressions, Purchase Intent, Occasion Fit, Price & Value, Founder Action, and Results.
+- Provides a participant Preview flow optimised for quick mobile-style feedback.
+- Stores test responses locally in the browser for pilot testing.
+- Shows Results with standout shoe thumbnails, reasons, purchase intent, price confidence, occasion fit, and recommended founder actions.
 
 ## Local Use
 
 Open `index.html` in a browser.
 
-Pilot login:
+Optional local server:
 
-- `maurice@sundaystaples.com`
-- `vip@sundaystaples.com`
-- `friend@sundaystaples.com`
+```bash
+npm start
+```
 
-## Vercel Static Deployment
+Then open:
 
-This folder is ready to import into Vercel.
+```text
+http://127.0.0.1:4173
+```
 
-No build command is required.
+## GitHub / Vercel Deployment
 
-Output directory:
+This is a static app and can be uploaded directly to GitHub, then imported into Vercel.
 
-`.` 
+Vercel settings:
 
-## Deployment Workflow
+- Framework preset: Other
+- Build command: leave blank
+- Output directory: `.`
 
-- GitHub is the source of truth.
-- Vercel should be connected to the GitHub repository.
-- Pushes to `main` redeploy the app.
-- Use Vercel Preview deployments for testing larger dashboard changes before inviting customers.
+## Notes
+
+This pilot currently stores configuration and responses in browser storage. For multi-user employee testing with shared online responses, the next backend step is to connect persistent hosted storage.
