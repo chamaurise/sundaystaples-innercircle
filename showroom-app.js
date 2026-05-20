@@ -3,6 +3,7 @@ const sourceConcepts = config.concepts || [];
 const app = document.querySelector("#app");
 const storeKey = "sunday-showroom-v1";
 const windowStorePrefix = "sunday-showroom-state:";
+const remoteStateUrl = "/api/state";
 
 const defaultTags = ["Tag 1", "Tag 2", "Tag 3"];
 const actionChoices = ["Launch as is", "Launch in another colour", "Tweak the shape", "Change the material", "Lower the price", "Market it differently", "Drop it"];
@@ -50,6 +51,9 @@ let memoryState = null;
 let state = loadState();
 let draftResponse = freshResponse();
 let saveNotice = "";
+let remoteStatus = "local";
+let remoteSaveTimer = null;
+let remoteSaveOptions = {};
 
 function storageGet(key) {
   try {
@@ -199,9 +203,66 @@ function normaliseFirstRounds(rounds, tags = defaultTags, assets = state.assets)
   });
 }
 
-function saveState() {
+function saveState(options = {}) {
   syncPriceItemsWithAssets();
   storageSet(storeKey, JSON.stringify(state));
+  queueRemoteSave(false, options);
+}
+
+function canUseRemoteState() {
+  return window.location.protocol === "https:" || window.location.protocol === "http:";
+}
+
+async function hydrateRemoteState() {
+  if (!canUseRemoteState()) return;
+  try {
+    const result = await fetch(remoteStateUrl, { cache: "no-store" });
+    if (!result.ok) return;
+    const payload = await result.json();
+    if (payload.setupRequired) {
+      remoteStatus = "setupRequired";
+      saveNotice = "Online sharing needs Vercel KV/Redis connected. This browser is using local storage for now.";
+      render();
+      return;
+    }
+    if (payload.state?.assets?.length) {
+      state = normaliseState(payload.state);
+      storageSet(storeKey, JSON.stringify(state));
+      remoteStatus = "online";
+      render();
+      return;
+    }
+    remoteStatus = "online";
+    queueRemoteSave(true);
+  } catch (error) {
+    remoteStatus = "local";
+  }
+}
+
+function queueRemoteSave(immediate = false, options = {}) {
+  if (!canUseRemoteState()) return;
+  remoteSaveOptions = { ...remoteSaveOptions, ...options };
+  window.clearTimeout(remoteSaveTimer);
+  remoteSaveTimer = window.setTimeout(saveRemoteState, immediate ? 0 : 450);
+}
+
+async function saveRemoteState() {
+  if (!canUseRemoteState()) return;
+  try {
+    const result = await fetch(remoteStateUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state, mode: remoteSaveOptions.replaceResponses ? "replaceResponses" : "mergeResponses" })
+    });
+    remoteSaveOptions = {};
+    if (!result.ok) {
+      remoteStatus = "setupRequired";
+      return;
+    }
+    remoteStatus = "online";
+  } catch (error) {
+    remoteStatus = "local";
+  }
 }
 
 function syncPriceItemsWithAssets() {
@@ -316,6 +377,10 @@ function backendSidebar() {
         <p class="eyebrow">Survey setup</p>
         <h2>${complete}% ready</h2>
         <div class="setup-meter" style="--ready:${complete}%"><span></span></div>
+      </div>
+      <div class="sync-card ${remoteStatus}">
+        <strong>${remoteStatus === "online" ? "Online sync active" : remoteStatus === "setupRequired" ? "Online sync needs setup" : "Local storage mode"}</strong>
+        <span>${remoteStatus === "online" ? "Admin changes can be shared from Vercel." : remoteStatus === "setupRequired" ? "Connect Vercel KV/Redis to share Admin changes online." : "Local file previews save only on this browser."}</span>
       </div>
       <nav class="backend-tabs">
         ${backendTabs.map((tab) => `
@@ -1036,7 +1101,7 @@ function firstPreview() {
 function mobileChoice(asset, side, match) {
   return `
     <article class="mobile-choice" tabindex="0">
-      <div class="choice-image">
+      <div class="choice-image" data-choice-image>
         <img style="${imageStyle(asset)}" src="${asset.image}" alt="${escapeAttribute(asset.name)}" />
         <div class="hover-drivers" aria-label="Why did you prefer this design?">
           <small>Choose why</small>
@@ -1414,7 +1479,7 @@ function bindEvents() {
 
   document.querySelector("[data-action='clear-responses']")?.addEventListener("click", () => {
     state.responses = [];
-    saveState();
+    saveState({ replaceResponses: true });
     render();
   });
 
@@ -1429,6 +1494,7 @@ function bindEvents() {
 
   document.querySelectorAll("[data-action='first-choice']").forEach((button) => {
     button.addEventListener("click", () => {
+      document.querySelectorAll("[data-choice-image]").forEach((node) => node.classList.remove("reveal-reasons"));
       draftResponse.firstImpressions.push({
         tag: button.dataset.tag,
         winner: button.dataset.id,
@@ -1437,6 +1503,16 @@ function bindEvents() {
       });
       customerMatch += 1;
       render();
+    });
+  });
+
+  document.querySelectorAll("[data-choice-image]").forEach((image) => {
+    image.addEventListener("click", (event) => {
+      if (event.target.closest("button")) return;
+      document.querySelectorAll("[data-choice-image].reveal-reasons").forEach((node) => {
+        if (node !== image) node.classList.remove("reveal-reasons");
+      });
+      image.classList.toggle("reveal-reasons");
     });
   });
 
@@ -1767,3 +1843,4 @@ function clamp(value, min, max) {
 }
 
 render();
+hydrateRemoteState();
