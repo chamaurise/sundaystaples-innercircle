@@ -591,6 +591,7 @@ h3 {
 .profile-editor-card input,
 .profile-editor-card textarea,
 .profile-copy-card input,
+.profile-copy-card select,
 .profile-copy-card textarea {
   width: 100%;
   border: 1px solid var(--line);
@@ -614,6 +615,7 @@ h3 {
 .profile-editor-card input:focus,
 .profile-editor-card textarea:focus,
 .profile-copy-card input:focus,
+.profile-copy-card select:focus,
 .profile-copy-card textarea:focus {
   outline: 2px solid rgba(36,95,87,0.18);
   border-color: var(--green);
@@ -947,10 +949,14 @@ select {
   grid-column: 1 / -1;
 }
 
-.asset-fields input {
+.asset-fields input,
+.asset-fields select {
   padding: 6px 7px;
   font-size: 11px;
   border-radius: 5px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
 }
 
 .asset-fields input[type="range"] {

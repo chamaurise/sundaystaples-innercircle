@@ -6,7 +6,7 @@ const windowStorePrefix = "sunday-showroom-state:";
 const adminSessionKey = "sunday-showroom-admin-unlocked";
 const remoteStateUrl = "/api/state";
 
-const defaultTags = ["Tag 1", "Tag 2", "Tag 3"];
+const defaultTags = ["Round 1", "Round 2", "Round 3"];
 const actionChoices = ["Launch as is", "Launch in another colour", "Tweak the shape", "Change the material", "Lower the price", "Market it differently", "Drop it"];
 const occasionChoices = ["Work", "Weekend", "Dinner", "Wedding / event", "Holiday", "Daily errands", "I would not wear this"];
 const defaultProfileQuestions = [
@@ -22,7 +22,7 @@ const defaultSurveyCopy = {
   profileStartButton: "Start design review"
 };
 const priceDriverChoices = ["Excellent value", "Fair for the design", "Too expensive", "Would wait for a promo", "Depends on material quality"];
-const firstImpressionDrivers = [
+const defaultFirstImpressionDrivers = [
   "More beautiful shape",
   "Better colour",
   "Easier to style",
@@ -112,6 +112,7 @@ function defaultState() {
     showroom: {
       profileQuestions: cloneProfileQuestions(defaultProfileQuestions),
       copy: { ...defaultSurveyCopy },
+      firstDrivers: [...defaultFirstImpressionDrivers],
       firstTags: [...defaultTags],
       firstRounds: defaultTags.map((tag) => assets.filter((asset) => asset.tags.includes(tag)).map((asset) => asset.id)),
       purchaseRounds: defaultTags.map((tag) => assets.filter((asset) => asset.tags.includes(tag)).slice(0, 5).map((asset) => asset.id)),
@@ -135,11 +136,16 @@ function loadState() {
 
 function normaliseState(saved) {
   const fallback = defaultState();
+  saved.assets = (saved.assets || fallback.assets).map((asset) => ({
+    ...asset,
+    tags: normaliseRoundTags(asset.tags)
+  }));
   saved.showroom = saved.showroom || {};
   saved.showroom.profileQuestions = normaliseProfileQuestions(saved.showroom.profileQuestions);
   saved.showroom.copy = { ...defaultSurveyCopy, ...(saved.showroom.copy || {}) };
-  saved.showroom.firstTags = saved.showroom.firstTags || fallback.showroom.firstTags;
-  saved.showroom.firstRounds = normaliseFirstRounds(saved.showroom.firstRounds, saved.showroom.firstTags, saved.assets);
+  saved.showroom.firstDrivers = normaliseFirstDrivers(saved.showroom.firstDrivers);
+  saved.showroom.firstTags = [...defaultTags];
+  saved.showroom.firstRounds = roundsFromRepositoryTags(saved.assets);
   saved.showroom.purchaseRounds = saved.showroom.purchaseRounds || fallback.showroom.purchaseRounds;
   saved.showroom.occasionItems = saved.showroom.occasionItems || saved.showroom.priceItems?.map((item) => item.id) || fallback.showroom.occasionItems;
   saved.showroom.priceItems = saved.showroom.priceItems || fallback.showroom.priceItems;
@@ -194,6 +200,45 @@ function surveyCopy() {
   return state.showroom.copy;
 }
 
+function normaliseRoundTags(tags = []) {
+  const legacyMap = { "Tag 1": "Round 1", "Tag 2": "Round 2", "Tag 3": "Round 3" };
+  const clean = (Array.isArray(tags) ? tags : String(tags || "").split(","))
+    .map((tag) => legacyMap[String(tag).trim()] || String(tag).trim())
+    .filter((tag) => defaultTags.includes(tag));
+  return clean.length ? [clean[0]] : [defaultTags[0]];
+}
+
+function roundTagForAsset(asset) {
+  return normaliseRoundTags(asset?.tags)[0];
+}
+
+function roundsFromRepositoryTags(assets = state.assets) {
+  return defaultTags.map((tag) => (assets || [])
+    .filter((asset) => roundTagForAsset(asset) === tag)
+    .map((asset) => asset.id));
+}
+
+function syncFirstRoundsFromRepository() {
+  state.showroom.firstTags = [...defaultTags];
+  state.assets.forEach((asset) => {
+    asset.tags = normaliseRoundTags(asset.tags);
+  });
+  state.showroom.firstRounds = roundsFromRepositoryTags(state.assets);
+}
+
+function normaliseFirstDrivers(drivers = []) {
+  const clean = (Array.isArray(drivers) ? drivers : [])
+    .map((driver) => String(driver || "").trim())
+    .filter(Boolean)
+    .slice(0, 5);
+  return [...clean, ...defaultFirstImpressionDrivers].slice(0, 5);
+}
+
+function firstDrivers() {
+  state.showroom.firstDrivers = normaliseFirstDrivers(state.showroom.firstDrivers);
+  return state.showroom.firstDrivers;
+}
+
 function normaliseFirstRounds(rounds, tags = defaultTags, assets = state.assets) {
   const assetIds = new Set((assets || []).map((asset) => asset.id));
   if (Array.isArray(rounds) && rounds.length) {
@@ -208,6 +253,7 @@ function normaliseFirstRounds(rounds, tags = defaultTags, assets = state.assets)
 }
 
 function saveState(options = {}) {
+  syncFirstRoundsFromRepository();
   syncPriceItemsWithAssets();
   storageSet(storeKey, JSON.stringify(state));
   queueRemoteSave(false, options);
@@ -548,7 +594,11 @@ function assetCard(asset) {
         <label>Material<input data-field="material" value="${escapeAttribute(asset.material)}" /></label>
         <label>RRP $<input data-field="rrp" type="number" min="1" step="1" value="${asset.rrp}" /></label>
         <label>Zoom<input data-field="zoom" type="range" min="80" max="180" value="${normaliseCrop(asset).zoom}" /></label>
-        <label>Tags<input data-field="tags" value="${escapeAttribute(tagsFor(asset).join(", "))}" placeholder="Tag 1, bridal, mesh" /></label>
+        <label>Tags
+          <select data-field="tags">
+            ${defaultTags.map((tag) => `<option value="${tag}" ${roundTagForAsset(asset) === tag ? "selected" : ""}>${tag}</option>`).join("")}
+          </select>
+        </label>
         <div class="crop-presets">
           ${["1:1", "4:6", "6:4", "4:5"].map((aspect) => `<button type="button" class="${normaliseCrop(asset).aspect === aspect ? "active" : ""}" data-crop-aspect="${aspect}">${aspect}</button>`).join("")}
         </div>
@@ -605,15 +655,27 @@ function profileEditorCard(question, index) {
 }
 
 function firstImpressionsSection() {
-  state.showroom.firstRounds = normaliseFirstRounds(state.showroom.firstRounds, state.showroom.firstTags, state.assets);
+  syncFirstRoundsFromRepository();
+  const drivers = firstDrivers();
   return `
     <section class="panel">
       <div class="section-head">
         <div>
           <p class="eyebrow">2. First Impressions</p>
           <h2>Head-to-head comparisons</h2>
-          <p class="hint">Choose concepts from the full repository for Round 1, Round 2, and Round 3. Each round creates up to four head-to-head matches.</p>
+          <p class="hint">Assign concepts to Round 1, Round 2, or Round 3 inside Repository. Each round creates up to four head-to-head matches.</p>
         </div>
+      </div>
+      <div class="profile-copy-card first-driver-card">
+        <div>
+          <h3>Customise Choose Why options</h3>
+          <p class="hint">These five buttons appear when participants choose why they preferred a head-to-head design.</p>
+        </div>
+        ${drivers.map((driver, index) => `
+          <label>Reason ${index + 1}
+            <input data-first-driver="${index}" maxlength="42" value="${escapeAttribute(driver)}" />
+          </label>
+        `).join("")}
       </div>
       <div class="purchase-builder">
         ${state.showroom.firstRounds.map((round, index) => firstRoundBuilder(round, index)).join("")}
@@ -1156,7 +1218,7 @@ function mobileChoice(asset, side, match) {
         <img style="${imageStyle(asset)}" src="${asset.image}" alt="${escapeAttribute(asset.name)}" />
         <div class="hover-drivers" aria-label="Why did you prefer this design?">
           <small>Choose why</small>
-          ${firstImpressionDrivers.map((driver) => `
+          ${firstDrivers().map((driver) => `
             <button type="button" data-action="first-choice" data-id="${asset.id}" data-side="${side}" data-tag="${escapeAttribute(match.tag)}" data-driver="${driver}">
               ${driver}
             </button>
@@ -1359,7 +1421,7 @@ function assetsWithTag(tag) {
 
 function firstImpressionMatches() {
   const matches = [];
-  state.showroom.firstRounds = normaliseFirstRounds(state.showroom.firstRounds, state.showroom.firstTags, state.assets);
+  syncFirstRoundsFromRepository();
   state.showroom.firstRounds.forEach((round, roundIndex) => {
     const tag = `Round ${roundIndex + 1}`;
     const assets = uniqueIds(round).map(assetById).filter(Boolean);
@@ -1492,9 +1554,10 @@ function bindEvents() {
   document.querySelectorAll("[data-first-round]").forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
       const roundIndex = Number(checkbox.dataset.firstRound);
-      const round = state.showroom.firstRounds[roundIndex] || [];
-      if (checkbox.checked && !round.includes(checkbox.value)) round.push(checkbox.value);
-      if (!checkbox.checked) state.showroom.firstRounds[roundIndex] = round.filter((id) => id !== checkbox.value);
+      const asset = assetById(checkbox.value);
+      if (asset && checkbox.checked) asset.tags = [defaultTags[roundIndex] || defaultTags[0]];
+      if (asset && !checkbox.checked) asset.tags = [defaultTags[0]];
+      syncFirstRoundsFromRepository();
       saveState();
       render();
     });
@@ -1554,8 +1617,10 @@ function bindEvents() {
 
   document.querySelector("[data-action='save-backend']")?.addEventListener("click", () => {
     updateProfileQuestionsFromForm();
+    updateFirstDriversFromForm();
+    syncFirstRoundsFromRepository();
     saveState();
-    saveNotice = backendTab === "profile" ? "Profile questions saved. Preview has been updated." : "Survey setup saved.";
+    saveNotice = backendTab === "profile" ? "Profile questions saved. Preview has been updated." : "Survey setup saved. Preview has been updated.";
     render();
   });
 
@@ -1703,7 +1768,8 @@ function updateAssetFromCard(card, shouldSave = true) {
   asset.material = value("material").trim() || "To be confirmed";
   asset.rrp = Number(value("rrp")) || 159;
   asset.crop.zoom = Number(value("zoom")) || 100;
-  asset.tags = value("tags").split(",").map((tag) => tag.trim()).filter(Boolean);
+  asset.tags = normaliseRoundTags(value("tags"));
+  syncFirstRoundsFromRepository();
   if (shouldSave) saveState();
   card.querySelector("[data-drag-crop]").setAttribute("style", thumbnailStyle(asset));
 }
@@ -1732,6 +1798,14 @@ function updateProfileQuestionsFromForm() {
   }));
 }
 
+function updateFirstDriversFromForm() {
+  const drivers = firstDrivers().map((driver, index) => {
+    const value = document.querySelector(`[data-first-driver='${index}']`)?.value.trim();
+    return value || driver;
+  });
+  state.showroom.firstDrivers = normaliseFirstDrivers(drivers);
+}
+
 async function addUploadedFiles(files) {
   for (const file of files) {
     const image = await readFile(file);
@@ -1741,7 +1815,7 @@ async function addUploadedFiles(files) {
       category: "Shoe concept",
       material: "To be confirmed",
       rrp: 159,
-      tags: ["Tag 1"],
+      tags: [defaultTags[0]],
       image,
       crop: { x: 50, y: 50, zoom: 100, left: 8, top: 8, width: 84, height: 84, aspect: "1:1" }
     });
