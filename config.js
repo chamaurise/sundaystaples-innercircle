@@ -1,4 +1,9 @@
 window.SUNDAY_CIRCLE_CONFIG = {
+  adminCredentials: {
+    username: "admin",
+    password: "SundayStaples2026!"
+  },
+
   eligibleCustomers: [
     {
       email: "maurice@sundaystaples.com",

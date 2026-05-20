@@ -91,6 +91,7 @@ img {
 }
 
 .nav button,
+.admin-login-button,
 .primary-button,
 .ghost-button,
 .upload-button {
@@ -108,6 +109,79 @@ img {
   background: var(--black);
   border-color: var(--black);
   color: #fff;
+}
+
+.admin-login-button {
+  background: rgba(255,255,255,0.74);
+  white-space: nowrap;
+}
+
+.admin-login-button:hover,
+.admin-login-button:focus {
+  border-color: var(--black);
+  background: #fff;
+}
+
+.admin-nav {
+  align-items: center;
+}
+
+.admin-login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(16,16,15,0.46);
+  backdrop-filter: blur(10px);
+}
+
+.admin-login-panel {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(222,211,197,0.86);
+  border-radius: 12px;
+  background: #fff;
+  padding: 22px;
+  box-shadow: 0 24px 60px rgba(16,16,15,0.22);
+}
+
+.admin-login-panel h2 {
+  margin: 4px 0 6px;
+}
+
+.admin-login-panel label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-login-panel input {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.login-error {
+  margin: 0;
+  border: 1px solid rgba(156,76,63,0.22);
+  border-radius: 8px;
+  background: rgba(156,76,63,0.08);
+  color: var(--rose);
+  padding: 10px 12px;
+  font-weight: 800;
+}
+
+.login-actions {
+  margin-top: 0;
 }
 
 .backend {

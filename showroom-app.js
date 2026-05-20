@@ -3,6 +3,7 @@ const sourceConcepts = config.concepts || [];
 const app = document.querySelector("#app");
 const storeKey = "sunday-showroom-v1";
 const windowStorePrefix = "sunday-showroom-state:";
+const adminSessionKey = "sunday-showroom-admin-unlocked";
 const remoteStateUrl = "/api/state";
 
 const defaultTags = ["Tag 1", "Tag 2", "Tag 3"];
@@ -40,7 +41,7 @@ const backendTabs = [
   { id: "results", label: "Results", helper: "Live readout" }
 ];
 
-let view = "backend";
+let view = "preview";
 let backendTab = "overview";
 let customerStep = "profile";
 let customerRound = 0;
@@ -54,6 +55,9 @@ let saveNotice = "";
 let remoteStatus = "local";
 let remoteSaveTimer = null;
 let remoteSaveOptions = {};
+let adminUnlocked = sessionStorage.getItem(adminSessionKey) === "true";
+let showAdminLogin = false;
+let adminLoginError = "";
 
 function storageGet(key) {
   try {
@@ -323,6 +327,30 @@ function tagsFor(asset) {
   return Array.isArray(asset.tags) ? asset.tags : [];
 }
 
+function adminCredentials() {
+  return {
+    username: config.adminCredentials?.username || "admin",
+    password: config.adminCredentials?.password || "SundayStaples2026!"
+  };
+}
+
+function topbarActions() {
+  if (view === "backend" && adminUnlocked) {
+    return `
+      <nav class="nav admin-nav">
+        <button data-view="preview">Preview</button>
+        <button class="active" data-action="admin-logout">Log out</button>
+      </nav>
+    `;
+  }
+
+  if (adminUnlocked) {
+    return `<button class="admin-login-button" data-view="backend">Open Admin</button>`;
+  }
+
+  return `<button class="admin-login-button" data-action="open-admin-login">Administrator Log in</button>`;
+}
+
 function render() {
   app.innerHTML = `
     <div class="shell ${view === "preview" ? "preview-shell" : ""}">
@@ -334,15 +362,38 @@ function render() {
             <span>${view === "backend" ? "Admin builder" : "Preview"}</span>
           </div>
         </div>
-        <nav class="nav">
-          <button class="${view === "backend" ? "active" : ""}" data-view="backend">Admin</button>
-          <button class="${view === "preview" ? "active" : ""}" data-view="preview">Preview</button>
-        </nav>
+        ${topbarActions()}
       </header>
-      ${view === "backend" ? backendScreen() : previewScreen()}
+      ${view === "backend" && adminUnlocked ? backendScreen() : previewScreen()}
+      ${showAdminLogin ? adminLoginModal() : ""}
     </div>
   `;
   bindEvents();
+}
+
+function adminLoginModal() {
+  return `
+    <div class="admin-login-overlay" role="dialog" aria-modal="true" aria-label="Administrator log in">
+      <form class="admin-login-panel" data-admin-login-form>
+        <div>
+          <p class="eyebrow">Private access</p>
+          <h2>Administrator Log in</h2>
+          <p class="hint">Enter the Admin credentials to edit survey setup, repository images, and results.</p>
+        </div>
+        <label>Username
+          <input name="username" autocomplete="username" autofocus />
+        </label>
+        <label>Password
+          <input name="password" type="password" autocomplete="current-password" />
+        </label>
+        ${adminLoginError ? `<p class="login-error">${adminLoginError}</p>` : ""}
+        <div class="button-row login-actions">
+          <button class="primary-button" type="submit">Log in</button>
+          <button class="ghost-button" type="button" data-action="close-admin-login">Cancel</button>
+        </div>
+      </form>
+    </div>
+  `;
 }
 
 function backendScreen() {
@@ -1353,9 +1404,55 @@ function topId(scores) {
 function bindEvents() {
   document.querySelectorAll("[data-view]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (button.dataset.view === "backend" && !adminUnlocked) {
+        showAdminLogin = true;
+        adminLoginError = "";
+        render();
+        return;
+      }
       view = button.dataset.view;
       render();
     });
+  });
+
+  document.querySelector("[data-action='open-admin-login']")?.addEventListener("click", () => {
+    showAdminLogin = true;
+    adminLoginError = "";
+    render();
+  });
+
+  document.querySelector("[data-action='close-admin-login']")?.addEventListener("click", () => {
+    showAdminLogin = false;
+    adminLoginError = "";
+    render();
+  });
+
+  document.querySelector("[data-action='admin-logout']")?.addEventListener("click", () => {
+    adminUnlocked = false;
+    sessionStorage.removeItem(adminSessionKey);
+    view = "preview";
+    showAdminLogin = false;
+    adminLoginError = "";
+    render();
+  });
+
+  document.querySelector("[data-admin-login-form]")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const expected = adminCredentials();
+    const username = String(form.elements.username.value || "").trim();
+    const password = String(form.elements.password.value || "");
+    if (username === expected.username && password === expected.password) {
+      adminUnlocked = true;
+      sessionStorage.setItem(adminSessionKey, "true");
+      showAdminLogin = false;
+      adminLoginError = "";
+      view = "backend";
+      render();
+      return;
+    }
+    adminLoginError = "Those details do not match. Please try again.";
+    render();
   });
 
   document.querySelectorAll("[data-backend-tab]").forEach((button) => {
