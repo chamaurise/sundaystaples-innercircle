@@ -27,7 +27,6 @@ const defaultSurveyCopy = {
   profileHint: "Choose one answer per row. This helps Sunday Staples compare feedback across different customer groups.",
   profileStartButton: "Start design review"
 };
-const priceDriverChoices = ["Excellent value", "Fair for the design", "Too expensive", "Would wait for a promo", "Depends on material quality"];
 const defaultFirstImpressionDrivers = [
   "More beautiful shape",
   "Better colour",
@@ -948,7 +947,7 @@ function priceValueSection() {
         <div>
           <p class="eyebrow">5. Price & Value</p>
           <h2>Select designs and starting prices</h2>
-          <p class="hint">Customers set a good-value price and a too-expensive threshold, giving you a practical pricing range.</p>
+          <p class="hint">Customers set the highest price that still feels like good value for each design.</p>
         </div>
       </div>
       <div class="price-builder">
@@ -1103,7 +1102,7 @@ function resultAnalyticsRow(row) {
       <div><strong>${row.firstVotes}</strong><span>${row.firstShare}% of preference votes</span></div>
       <div><strong>${row.topDriver || "-"}</strong><span>${driverSummary(row)}</span></div>
       <div><strong>${row.topOneCount}</strong><span>avg rank ${row.averageRank || "-"}</span></div>
-      <div><strong>${row.averageAcceptedPrice ? `$${row.averageAcceptedPrice}` : "-"}</strong><span>${row.priceRetention ? `${row.priceRetention}% of RRP; too high near $${row.averageTooExpensivePrice}` : "no price data"}</span></div>
+      <div><strong>${row.averageAcceptedPrice ? `$${row.averageAcceptedPrice}` : "-"}</strong><span>${row.priceRetention ? `${row.priceRetention}% of RRP accepted` : "no price data"}</span></div>
       <div><strong>${row.topOccasion || "-"}</strong><span>${summaryFromCounts(row.occasions, "No occasion data")}</span></div>
       <div><strong>${row.topAction || "-"}</strong><span>${summaryFromCounts(row.actions, "No action data")}</span></div>
     </div>
@@ -1139,12 +1138,10 @@ function buildShowroomAnalytics() {
       rankTotal: 0,
       averageRank: "",
       priceTotal: 0,
-      tooExpensiveTotal: 0,
       priceCount: 0,
       retentionTotal: 0,
       priceRetention: 0,
       averageAcceptedPrice: 0,
-      averageTooExpensivePrice: 0,
       occasions: {},
       topOccasion: "",
       actions: {},
@@ -1188,7 +1185,6 @@ function buildShowroomAnalytics() {
       const startPrice = Number(item.startPrice || row.asset.rrp || 0);
       if (!acceptedPrice || !startPrice) return;
       row.priceTotal += acceptedPrice;
-      row.tooExpensiveTotal += Number(item.tooExpensivePrice || startPrice + 15);
       row.priceCount += 1;
       row.retentionTotal += Math.min(125, Math.round((acceptedPrice / startPrice) * 100));
     });
@@ -1218,7 +1214,6 @@ function buildShowroomAnalytics() {
     row.firstShare = totalPreferenceVotes ? Math.round((row.firstVotes / totalPreferenceVotes) * 100) : 0;
     row.averageRank = row.rankCount ? (row.rankTotal / row.rankCount).toFixed(1) : "";
     row.averageAcceptedPrice = row.priceCount ? Math.round(row.priceTotal / row.priceCount) : 0;
-    row.averageTooExpensivePrice = row.priceCount ? Math.round(row.tooExpensiveTotal / row.priceCount) : 0;
     row.priceRetention = row.priceCount ? Math.round(row.retentionTotal / row.priceCount) : 0;
     row.score = row.firstVotes * 12 + row.purchaseScore * 4 + row.topOneCount * 8 + Math.round(row.priceRetention / 4) + (row.topAction?.startsWith("Launch") ? 18 : 0);
     return row;
@@ -1422,23 +1417,6 @@ function mobileChoice(asset, side, match) {
   `;
 }
 
-function structuredReasonBlock(prefix) {
-  return `
-    <div class="reason-box">
-      <label>Recommended action
-        <select data-${prefix}-field="request">
-          ${actionChoices.map((choice) => `<option>${choice}</option>`).join("")}
-        </select>
-      </label>
-      <label>Value signal
-        <select data-${prefix}-field="driver">
-          ${priceDriverChoices.map((choice) => `<option>${choice}</option>`).join("")}
-        </select>
-      </label>
-    </div>
-  `;
-}
-
 function purchasePreview() {
   if (purchaseRound >= state.showroom.purchaseRounds.length) {
     advanceFromStep("purchase");
@@ -1525,7 +1503,6 @@ function pricePreview() {
   }
   const asset = assetById(item.id);
   const min = Math.max(1, Number(item.startPrice) - 15);
-  const tooHigh = Number(item.startPrice) + 30;
   return `
     <div class="phone-head">
       <span>${stepLabel("price")}</span>
@@ -1543,13 +1520,6 @@ function pricePreview() {
       <input type="range" min="${min}" max="${item.startPrice}" value="${item.startPrice}" step="1" data-action="price-slider" />
       <div><span>$${min}</span><span>$${item.startPrice}</span></div>
     </div>
-    <div class="price-slider secondary-price">
-      <label>At what price would it start to feel too expensive?</label>
-      <strong>$<span data-too-expensive-readout>${Number(item.startPrice) + 15}</span></strong>
-      <input type="range" min="${item.startPrice}" max="${tooHigh}" value="${Number(item.startPrice) + 15}" step="1" data-action="too-expensive-slider" />
-      <div><span>$${item.startPrice}</span><span>$${tooHigh}</span></div>
-    </div>
-    ${structuredReasonBlock("price")}
     <button class="primary-button" data-action="save-price">Next design</button>
   `;
 }
@@ -1945,19 +1915,12 @@ function bindEvents() {
     document.querySelector("[data-price-readout]").textContent = event.target.value;
   });
 
-  document.querySelector("[data-action='too-expensive-slider']")?.addEventListener("input", (event) => {
-    document.querySelector("[data-too-expensive-readout]").textContent = event.target.value;
-  });
-
   document.querySelector("[data-action='save-price']")?.addEventListener("click", () => {
     const item = state.showroom.priceItems[priceIndex];
     draftResponse.priceValue.push({
       id: item.id,
       startPrice: item.startPrice,
-      acceptedPrice: Number(document.querySelector("[data-action='price-slider']").value),
-      tooExpensivePrice: Number(document.querySelector("[data-action='too-expensive-slider']").value),
-      request: document.querySelector("[data-price-field='request']").value,
-      driver: document.querySelector("[data-price-field='driver']").value
+      acceptedPrice: Number(document.querySelector("[data-action='price-slider']").value)
     });
     priceIndex += 1;
     render();
