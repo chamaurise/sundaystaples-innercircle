@@ -46,6 +46,14 @@ const backendTabs = [
   { id: "action", label: "Founder Action", helper: "Decisions" },
   { id: "results", label: "Results", helper: "Live readout" }
 ];
+const surveySteps = [
+  { id: "profile", label: "Participant Profile", helper: "Customer segment questions" },
+  { id: "first", label: "First Impressions", helper: "Head-to-head design battles" },
+  { id: "purchase", label: "Purchase Intent", helper: "Rank the most likely buys" },
+  { id: "occasion", label: "Occasion Fit", helper: "Where customers would wear it" },
+  { id: "price", label: "Price & Value", helper: "Good-value price sliders" },
+  { id: "action", label: "Founder Action", helper: "Launch, tweak, reprice, or drop" }
+];
 
 let view = "preview";
 let backendTab = "overview";
@@ -120,6 +128,7 @@ function defaultState() {
     showroom: {
       profileQuestions: cloneProfileQuestions(defaultProfileQuestions),
       copy: { ...defaultSurveyCopy },
+      liveSteps: Object.fromEntries(surveySteps.map((step) => [step.id, true])),
       firstDrivers: [...defaultFirstImpressionDrivers],
       firstTags: [...defaultTags],
       firstRounds: defaultTags.map((tag) => assets.filter((asset) => asset.tags.includes(tag)).map((asset) => asset.id)),
@@ -152,6 +161,7 @@ function normaliseState(saved) {
   saved.adminCredentials = normaliseAdminCredentials(saved.adminCredentials);
   saved.showroom.profileQuestions = normaliseProfileQuestions(saved.showroom.profileQuestions);
   saved.showroom.copy = { ...defaultSurveyCopy, ...(saved.showroom.copy || {}) };
+  saved.showroom.liveSteps = normaliseLiveSteps(saved.showroom.liveSteps);
   saved.showroom.firstDrivers = normaliseFirstDrivers(saved.showroom.firstDrivers);
   saved.showroom.firstTags = [...defaultTags];
   saved.showroom.firstRounds = normaliseFirstRounds(saved.showroom.firstRounds, saved.showroom.firstTags, saved.assets);
@@ -215,6 +225,71 @@ function normaliseAdminCredentials(credentials = {}) {
     username: String(credentials.username || defaultAdminCredentials.username).trim() || defaultAdminCredentials.username,
     password: String(credentials.password || defaultAdminCredentials.password) || defaultAdminCredentials.password
   };
+}
+
+function normaliseLiveSteps(liveSteps = {}) {
+  const normalised = {};
+  surveySteps.forEach((step) => {
+    normalised[step.id] = liveSteps[step.id] !== false;
+  });
+  if (!Object.values(normalised).some(Boolean)) normalised.profile = true;
+  return normalised;
+}
+
+function liveSteps() {
+  state.showroom.liveSteps = normaliseLiveSteps(state.showroom.liveSteps);
+  return state.showroom.liveSteps;
+}
+
+function activeSurveySteps() {
+  const active = liveSteps();
+  return surveySteps.filter((step) => active[step.id]);
+}
+
+function stepEnabled(stepId) {
+  return Boolean(liveSteps()[stepId]);
+}
+
+function stepPosition(stepId) {
+  const active = activeSurveySteps();
+  return Math.max(0, active.findIndex((step) => step.id === stepId));
+}
+
+function stepLabel(stepId) {
+  const active = activeSurveySteps();
+  const index = stepPosition(stepId);
+  return `Step ${Math.min(index + 1, active.length)} of ${active.length}`;
+}
+
+function firstLiveStepId() {
+  return activeSurveySteps()[0]?.id || "done";
+}
+
+function nextLiveStepId(stepId) {
+  const active = activeSurveySteps();
+  const index = active.findIndex((step) => step.id === stepId);
+  return active[index + 1]?.id || "done";
+}
+
+function completeDraftResponse() {
+  if (draftResponse.completedAt) return;
+  draftResponse.completedAt = new Date().toISOString();
+  state.responses.push(draftResponse);
+  saveState();
+}
+
+function advanceFromStep(stepId) {
+  const next = nextLiveStepId(stepId);
+  if (next === "done") completeDraftResponse();
+  customerStep = next;
+}
+
+function ensureLiveCustomerStep() {
+  if (customerStep === "done") return;
+  if (!stepEnabled(customerStep)) {
+    customerStep = firstLiveStepId();
+    if (customerStep === "done") completeDraftResponse();
+  }
 }
 
 function normaliseRoundTags(tags = []) {
@@ -562,8 +637,37 @@ function overviewSection() {
         `).join("")}
       </div>
     </section>
+    ${liveStepsSection()}
     ${adminAccessSection()}
     ${resultsSection()}
+  `;
+}
+
+function liveStepsSection() {
+  const active = liveSteps();
+  const activeCount = activeSurveySteps().length;
+  return `
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Live survey steps</p>
+          <h2>Choose which components participants see</h2>
+          <p class="hint">Switch sections on or off depending on the research session. The participant survey will renumber and skip disabled steps automatically.</p>
+        </div>
+        <strong class="live-step-count">${activeCount} live</strong>
+      </div>
+      <div class="live-step-grid">
+        ${surveySteps.map((step) => `
+          <label class="live-step-card ${active[step.id] ? "active" : ""}">
+            <input type="checkbox" data-live-step="${step.id}" ${active[step.id] ? "checked" : ""} />
+            <span>
+              <strong>${step.label}</strong>
+              <small>${step.helper}</small>
+            </span>
+          </label>
+        `).join("")}
+      </div>
+    </section>
   `;
 }
 
@@ -1191,6 +1295,7 @@ function plural(count) {
 }
 
 function previewScreen() {
+  ensureLiveCustomerStep();
   return `
     <main class="phone-wrap">
       <section class="phone step-${customerStep}">
@@ -1212,16 +1317,16 @@ function previewScreen() {
 }
 
 function previewProgress() {
-  const steps = ["profile", "first", "purchase", "occasion", "price", "action", "done"];
-  const current = Math.max(0, steps.indexOf(customerStep));
-  const progress = Math.round(((current + 1) / steps.length) * 100);
+  const active = activeSurveySteps();
+  const current = customerStep === "done" ? active.length : Math.max(0, active.findIndex((step) => step.id === customerStep));
+  const progress = Math.round((Math.min(current + 1, active.length + 1) / (active.length + 1)) * 100);
   return `
     <div class="session-progress" aria-label="Survey progress">
       <span style="--progress:${progress}%"></span>
     </div>
     <div class="progress-meta">
       <strong>${progress}% complete</strong>
-      <span>${customerStep === "done" ? "Finished" : `Step ${Math.min(current + 1, 6)} of 6`}</span>
+      <span>${customerStep === "done" ? "Finished" : stepLabel(customerStep)}</span>
     </div>
   `;
 }
@@ -1238,7 +1343,7 @@ function profilePreview() {
       <span>Sunday Staples Inner Circle</span>
     </div>
     <div class="phone-head">
-      <span>Step 1 of 6</span>
+      <span>${stepLabel("profile")}</span>
       <strong>${index + 1} / ${questions.length}</strong>
     </div>
     <div class="profile-intro">
@@ -1274,7 +1379,7 @@ function firstPreview() {
   const matches = firstImpressionMatches();
   const match = matches[customerMatch];
   if (!match) {
-    customerStep = "purchase";
+    advanceFromStep("first");
     customerRound = 0;
     render();
     return "";
@@ -1283,7 +1388,7 @@ function firstPreview() {
   const right = assetById(match.right);
   return `
     <div class="phone-head">
-      <span>Step 2 of 6</span>
+      <span>${stepLabel("first")}</span>
       <strong>${customerMatch + 1} / ${matches.length}</strong>
     </div>
     <h2>Which design would you be more excited to see Sunday Staples launch?</h2>
@@ -1336,7 +1441,7 @@ function structuredReasonBlock(prefix) {
 
 function purchasePreview() {
   if (purchaseRound >= state.showroom.purchaseRounds.length) {
-    customerStep = "occasion";
+    advanceFromStep("purchase");
     customerRound = 0;
     render();
     return "";
@@ -1350,7 +1455,7 @@ function purchasePreview() {
   }
   return `
     <div class="phone-head">
-      <span>Step 3 of 6</span>
+      <span>${stepLabel("purchase")}</span>
       <strong>${purchaseRound + 1} / ${state.showroom.purchaseRounds.length}</strong>
     </div>
     <h2>Rank which designs you would most likely buy within the next 30 days.</h2>
@@ -1389,7 +1494,7 @@ function rankThumb(asset, index) {
 function occasionPreview() {
   const id = state.showroom.occasionItems[customerRound];
   if (!id) {
-    customerStep = "price";
+    advanceFromStep("occasion");
     customerRound = 0;
     priceIndex = 0;
     render();
@@ -1398,7 +1503,7 @@ function occasionPreview() {
   const asset = assetById(id);
   return `
     <div class="phone-head">
-      <span>Step 4 of 6</span>
+      <span>${stepLabel("occasion")}</span>
       <strong>${customerRound + 1} / ${state.showroom.occasionItems.length}</strong>
     </div>
     <h2>Where would you most likely wear this design?</h2>
@@ -1413,7 +1518,7 @@ function occasionPreview() {
 function pricePreview() {
   const item = state.showroom.priceItems[priceIndex];
   if (!item) {
-    customerStep = "action";
+    advanceFromStep("price");
     customerRound = 0;
     render();
     return "";
@@ -1423,7 +1528,7 @@ function pricePreview() {
   const tooHigh = Number(item.startPrice) + 30;
   return `
     <div class="phone-head">
-      <span>Step 5 of 6</span>
+      <span>${stepLabel("price")}</span>
       <strong>${priceIndex + 1} / ${state.showroom.priceItems.length}</strong>
     </div>
     <h2>At what price would this still feel like good value?</h2>
@@ -1452,17 +1557,14 @@ function pricePreview() {
 function actionPreview() {
   const id = state.showroom.actionItems[customerRound];
   if (!id) {
-    customerStep = "done";
-    draftResponse.completedAt = new Date().toISOString();
-    state.responses.push(draftResponse);
-    saveState();
+    advanceFromStep("action");
     render();
     return "";
   }
   const asset = assetById(id);
   return `
     <div class="phone-head">
-      <span>Step 6 of 6</span>
+      <span>${stepLabel("action")}</span>
       <strong>${customerRound + 1} / ${state.showroom.actionItems.length}</strong>
     </div>
     <h2>What should Sunday Staples do with this design?</h2>
@@ -1609,6 +1711,18 @@ function bindEvents() {
     });
   });
 
+  document.querySelectorAll("[data-live-step]").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const current = liveSteps();
+      current[checkbox.dataset.liveStep] = checkbox.checked;
+      state.showroom.liveSteps = normaliseLiveSteps(current);
+      if (customerStep !== "done" && !stepEnabled(customerStep)) customerStep = firstLiveStepId();
+      saveState();
+      saveNotice = `${activeSurveySteps().length} survey component${activeSurveySteps().length === 1 ? "" : "s"} live.`;
+      render();
+    });
+  });
+
   document.querySelector("[data-action='upload-assets']")?.addEventListener("change", async (event) => {
     await addUploadedFiles([...event.target.files]);
   });
@@ -1741,7 +1855,7 @@ function bindEvents() {
       const selected = [...group.querySelectorAll("input:checked")].map((input) => input.value);
       draftResponse.profile[group.dataset.profileGroup] = group.dataset.profileMultiple === "true" ? selected : selected[0] || "";
     });
-    customerStep = "first";
+    advanceFromStep("profile");
     render();
   });
 
@@ -1763,7 +1877,7 @@ function bindEvents() {
       return;
     }
     profileQuestionIndex = 0;
-    customerStep = "first";
+    advanceFromStep("profile");
     render();
   });
 
@@ -1861,7 +1975,7 @@ function bindEvents() {
   });
 
   document.querySelector("[data-action='restart-preview']")?.addEventListener("click", () => {
-    customerStep = "profile";
+    customerStep = firstLiveStepId();
     profileQuestionIndex = 0;
     customerMatch = 0;
     customerRound = 0;

@@ -208,6 +208,54 @@ img {
   background: #fff;
 }
 
+.live-step-count {
+  align-self: start;
+  border: 1px solid rgba(36,95,87,0.18);
+  border-radius: 999px;
+  background: rgba(36,95,87,0.08);
+  color: var(--green);
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
+.live-step-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.live-step-card {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  padding: 13px;
+  cursor: pointer;
+}
+
+.live-step-card.active {
+  border-color: rgba(36,95,87,0.34);
+  background: rgba(36,95,87,0.06);
+}
+
+.live-step-card input {
+  margin-top: 3px;
+  accent-color: var(--green);
+}
+
+.live-step-card span {
+  display: grid;
+  gap: 3px;
+}
+
+.live-step-card small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
 .backend {
   width: min(1440px, 100%);
   margin: 0 auto;
@@ -1676,6 +1724,10 @@ select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .live-step-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .analytics-row {
     grid-template-columns: minmax(190px, 1.3fr) repeat(7, minmax(92px, 1fr));
     overflow-x: auto;
@@ -1770,6 +1822,7 @@ select {
   .metrics,
   .results-grid,
   .workflow-grid,
+  .live-step-grid,
   .admin-credential-card,
   .two-col,
   .tag-builder,
