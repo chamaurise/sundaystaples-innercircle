@@ -184,6 +184,30 @@ img {
   margin-top: 0;
 }
 
+.admin-credential-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.admin-credential-card label {
+  display: grid;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-credential-card input {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #fff;
+}
+
 .backend {
   width: min(1440px, 100%);
   margin: 0 auto;
@@ -1127,15 +1151,30 @@ select {
   display: grid;
   place-items: start center;
   padding: 18px;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(161,122,53,0.10), transparent 30%),
+    radial-gradient(circle at 100% 18%, rgba(36,95,87,0.10), transparent 28%);
 }
 
 .phone {
   width: min(430px, 100%);
   border: 1px solid var(--line);
   border-radius: 22px;
-  background: #fff;
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(255,255,255,0.94));
   padding: 16px;
   box-shadow: 0 24px 60px rgba(34, 28, 21, 0.16);
+  animation: survey-rise 0.34s ease both;
+}
+
+@keyframes survey-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .preview-time-card {
@@ -1162,7 +1201,7 @@ select {
   border-radius: 999px;
   background: var(--soft);
   overflow: hidden;
-  margin-bottom: 14px;
+  margin-bottom: 7px;
 }
 
 .session-progress span {
@@ -1171,6 +1210,56 @@ select {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, var(--green), var(--gold));
+  transition: width 0.34s ease;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.progress-meta strong {
+  color: var(--green);
+}
+
+.survey-visual {
+  position: relative;
+  height: 104px;
+  overflow: hidden;
+  border-radius: 16px;
+  margin-bottom: 12px;
+  background: var(--soft);
+}
+
+.survey-visual img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.survey-visual::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(16,16,15,0.28), transparent 62%);
+}
+
+.survey-visual span {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 1;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .phone-head {
@@ -1191,6 +1280,33 @@ select {
   margin: 14px 0;
 }
 
+.compact-profile {
+  margin: 10px 0;
+}
+
+.profile-intro h2 {
+  margin-bottom: 6px;
+}
+
+.profile-intro .hint {
+  margin-bottom: 0;
+}
+
+.profile-nav {
+  display: grid;
+  grid-template-columns: 0.75fr 1.25fr;
+  gap: 10px;
+  position: sticky;
+  bottom: 0;
+  padding-top: 8px;
+  background: linear-gradient(180deg, rgba(255,255,255,0), #fff 34%);
+}
+
+.profile-nav button:disabled {
+  opacity: 0.36;
+  cursor: default;
+}
+
 .choice-group {
   display: grid;
   gap: 8px;
@@ -1198,6 +1314,8 @@ select {
   border-radius: 12px;
   padding: 12px;
   margin: 0;
+  background: #fff;
+  animation: survey-rise 0.22s ease both;
 }
 
 .choice-group legend {
@@ -1516,6 +1634,20 @@ select {
   padding: 28px 8px;
 }
 
+.completion-mark {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--green), var(--gold));
+  color: #fff;
+  font-size: 30px;
+  font-weight: 900;
+  box-shadow: 0 14px 32px rgba(36,95,87,0.22);
+}
+
 @media (max-width: 980px) {
   .hero-panel,
   .backend-layout {
@@ -1559,6 +1691,38 @@ select {
     position: static;
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .preview-shell .topbar {
+    flex-direction: row;
+    align-items: center;
+    padding: 9px 10px;
+  }
+
+  .preview-shell .brand {
+    gap: 8px;
+  }
+
+  .preview-shell .brand-mark {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+  }
+
+  .preview-shell .brand strong {
+    font-size: 13px;
+    line-height: 1.18;
+  }
+
+  .preview-shell .brand span {
+    display: none;
+  }
+
+  .preview-shell .admin-login-button {
+    width: auto;
+    min-height: 36px;
+    padding: 8px 10px;
+    font-size: 11px;
   }
 
   .nav {
@@ -1606,6 +1770,7 @@ select {
   .metrics,
   .results-grid,
   .workflow-grid,
+  .admin-credential-card,
   .two-col,
   .tag-builder,
   .reason-box {
@@ -1656,12 +1821,48 @@ select {
   }
 
   .phone-wrap {
-    padding: 10px;
+    min-height: calc(100vh - 55px);
+    padding: 8px;
   }
 
   .phone {
     border-radius: 14px;
-    padding: 12px;
+    padding: 10px;
+  }
+
+  .preview-time-card {
+    padding: 7px 10px;
+    margin-bottom: 8px;
+  }
+
+  .progress-meta,
+  .phone-head {
+    margin-bottom: 8px;
+  }
+
+  .survey-visual {
+    height: 78px;
+    border-radius: 12px;
+    margin-bottom: 8px;
+  }
+
+  .profile-intro h2,
+  .phone h2 {
+    font-size: 20px;
+    line-height: 1.14;
+  }
+
+  .choice-group {
+    padding: 10px;
+    gap: 7px;
+  }
+
+  .choice-pill {
+    padding: 8px;
+  }
+
+  .profile-nav {
+    grid-template-columns: 0.65fr 1.35fr;
   }
 }
 

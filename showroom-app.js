@@ -1,5 +1,9 @@
 const config = window.SUNDAY_CIRCLE_CONFIG || {};
 const sourceConcepts = config.concepts || [];
+const defaultAdminCredentials = {
+  username: config.adminCredentials?.username || "admin",
+  password: config.adminCredentials?.password || "SundayStaples2026!"
+};
 const app = document.querySelector("#app");
 const storeKey = "sunday-showroom-v1";
 const windowStorePrefix = "sunday-showroom-state:";
@@ -7,6 +11,8 @@ const adminSessionKey = "sunday-showroom-admin-unlocked";
 const remoteStateUrl = "/api/state";
 
 const defaultTags = ["Round 1", "Round 2", "Round 3"];
+const notSelectedTag = "Not selected";
+const roundTagOptions = [...defaultTags, notSelectedTag];
 const actionChoices = ["Launch as is", "Launch in another colour", "Tweak the shape", "Change the material", "Lower the price", "Market it differently", "Drop it"];
 const occasionChoices = ["Work", "Weekend", "Dinner", "Wedding / event", "Holiday", "Daily errands", "I would not wear this"];
 const defaultProfileQuestions = [
@@ -44,6 +50,7 @@ const backendTabs = [
 let view = "preview";
 let backendTab = "overview";
 let customerStep = "profile";
+let profileQuestionIndex = 0;
 let customerRound = 0;
 let customerMatch = 0;
 let purchaseRound = 0;
@@ -109,6 +116,7 @@ function defaultState() {
   const assets = seedAssets();
   return {
     assets,
+    adminCredentials: { ...defaultAdminCredentials },
     showroom: {
       profileQuestions: cloneProfileQuestions(defaultProfileQuestions),
       copy: { ...defaultSurveyCopy },
@@ -141,11 +149,13 @@ function normaliseState(saved) {
     tags: normaliseRoundTags(asset.tags)
   }));
   saved.showroom = saved.showroom || {};
+  saved.adminCredentials = normaliseAdminCredentials(saved.adminCredentials);
   saved.showroom.profileQuestions = normaliseProfileQuestions(saved.showroom.profileQuestions);
   saved.showroom.copy = { ...defaultSurveyCopy, ...(saved.showroom.copy || {}) };
   saved.showroom.firstDrivers = normaliseFirstDrivers(saved.showroom.firstDrivers);
   saved.showroom.firstTags = [...defaultTags];
-  saved.showroom.firstRounds = roundsFromRepositoryTags(saved.assets);
+  saved.showroom.firstRounds = normaliseFirstRounds(saved.showroom.firstRounds, saved.showroom.firstTags, saved.assets);
+  syncRepositoryTagsFromFirstRounds(saved);
   saved.showroom.purchaseRounds = saved.showroom.purchaseRounds || fallback.showroom.purchaseRounds;
   saved.showroom.occasionItems = saved.showroom.occasionItems || saved.showroom.priceItems?.map((item) => item.id) || fallback.showroom.occasionItems;
   saved.showroom.priceItems = saved.showroom.priceItems || fallback.showroom.priceItems;
@@ -200,12 +210,19 @@ function surveyCopy() {
   return state.showroom.copy;
 }
 
+function normaliseAdminCredentials(credentials = {}) {
+  return {
+    username: String(credentials.username || defaultAdminCredentials.username).trim() || defaultAdminCredentials.username,
+    password: String(credentials.password || defaultAdminCredentials.password) || defaultAdminCredentials.password
+  };
+}
+
 function normaliseRoundTags(tags = []) {
   const legacyMap = { "Tag 1": "Round 1", "Tag 2": "Round 2", "Tag 3": "Round 3" };
   const clean = (Array.isArray(tags) ? tags : String(tags || "").split(","))
     .map((tag) => legacyMap[String(tag).trim()] || String(tag).trim())
-    .filter((tag) => defaultTags.includes(tag));
-  return clean.length ? [clean[0]] : [defaultTags[0]];
+    .filter((tag) => roundTagOptions.includes(tag));
+  return clean.length ? [clean[0]] : [notSelectedTag];
 }
 
 function roundTagForAsset(asset) {
@@ -224,6 +241,28 @@ function syncFirstRoundsFromRepository() {
     asset.tags = normaliseRoundTags(asset.tags);
   });
   state.showroom.firstRounds = roundsFromRepositoryTags(state.assets);
+}
+
+function syncRepositoryTagsFromFirstRounds(targetState = state) {
+  targetState.showroom = targetState.showroom || {};
+  targetState.showroom.firstTags = [...defaultTags];
+  targetState.showroom.firstRounds = normaliseFirstRounds(targetState.showroom.firstRounds, defaultTags, targetState.assets);
+  const roundByAsset = new Map();
+  targetState.showroom.firstRounds.forEach((round, index) => {
+    uniqueIds(round).forEach((id) => roundByAsset.set(id, defaultTags[index] || notSelectedTag));
+  });
+  targetState.assets.forEach((asset) => {
+    asset.tags = [roundByAsset.get(asset.id) || notSelectedTag];
+  });
+}
+
+function moveAssetToFirstRound(assetId, roundIndex) {
+  state.showroom.firstRounds = normaliseFirstRounds(state.showroom.firstRounds, defaultTags, state.assets)
+    .map((round) => round.filter((id) => id !== assetId));
+  if (roundIndex >= 0 && roundIndex < defaultTags.length) {
+    state.showroom.firstRounds[roundIndex].push(assetId);
+  }
+  syncRepositoryTagsFromFirstRounds();
 }
 
 function normaliseFirstDrivers(drivers = []) {
@@ -253,7 +292,7 @@ function normaliseFirstRounds(rounds, tags = defaultTags, assets = state.assets)
 }
 
 function saveState(options = {}) {
-  syncFirstRoundsFromRepository();
+  syncRepositoryTagsFromFirstRounds();
   syncPriceItemsWithAssets();
   storageSet(storeKey, JSON.stringify(state));
   queueRemoteSave(false, options);
@@ -374,10 +413,8 @@ function tagsFor(asset) {
 }
 
 function adminCredentials() {
-  return {
-    username: config.adminCredentials?.username || "admin",
-    password: config.adminCredentials?.password || "SundayStaples2026!"
-  };
+  state.adminCredentials = normaliseAdminCredentials(state.adminCredentials);
+  return state.adminCredentials;
 }
 
 function topbarActions() {
@@ -525,7 +562,32 @@ function overviewSection() {
         `).join("")}
       </div>
     </section>
+    ${adminAccessSection()}
     ${resultsSection()}
+  `;
+}
+
+function adminAccessSection() {
+  const credentials = adminCredentials();
+  return `
+    <section class="panel">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Admin access</p>
+          <h2>Change administrator credentials</h2>
+          <p class="hint">Update the login details used to access this Admin area.</p>
+        </div>
+      </div>
+      <div class="admin-credential-card">
+        <label>Username
+          <input data-admin-credential="username" value="${escapeAttribute(credentials.username)}" autocomplete="username" />
+        </label>
+        <label>New password
+          <input data-admin-credential="password" type="password" value="${escapeAttribute(credentials.password)}" autocomplete="new-password" />
+        </label>
+        <button class="primary-button" data-action="save-admin-credentials">Save credentials</button>
+      </div>
+    </section>
   `;
 }
 
@@ -596,7 +658,7 @@ function assetCard(asset) {
         <label>Zoom<input data-field="zoom" type="range" min="80" max="180" value="${normaliseCrop(asset).zoom}" /></label>
         <label>Tags
           <select data-field="tags">
-            ${defaultTags.map((tag) => `<option value="${tag}" ${roundTagForAsset(asset) === tag ? "selected" : ""}>${tag}</option>`).join("")}
+            ${roundTagOptions.map((tag) => `<option value="${tag}" ${roundTagForAsset(asset) === tag ? "selected" : ""}>${tag}</option>`).join("")}
           </select>
         </label>
         <div class="crop-presets">
@@ -655,7 +717,7 @@ function profileEditorCard(question, index) {
 }
 
 function firstImpressionsSection() {
-  syncFirstRoundsFromRepository();
+  syncRepositoryTagsFromFirstRounds();
   const drivers = firstDrivers();
   return `
     <section class="panel">
@@ -663,7 +725,7 @@ function firstImpressionsSection() {
         <div>
           <p class="eyebrow">2. First Impressions</p>
           <h2>Head-to-head comparisons</h2>
-          <p class="hint">Assign concepts to Round 1, Round 2, or Round 3 inside Repository. Each round creates up to four head-to-head matches.</p>
+          <p class="hint">Select concepts into Round 1, Round 2, and Round 3 here. Repository tags update automatically to match these selections.</p>
         </div>
       </div>
       <div class="profile-copy-card first-driver-card">
@@ -1131,7 +1193,7 @@ function plural(count) {
 function previewScreen() {
   return `
     <main class="phone-wrap">
-      <section class="phone">
+      <section class="phone step-${customerStep}">
         <div class="preview-time-card">
           <span>Estimated survey time</span>
           <strong>2-5 mins</strong>
@@ -1152,22 +1214,44 @@ function previewScreen() {
 function previewProgress() {
   const steps = ["profile", "first", "purchase", "occasion", "price", "action", "done"];
   const current = Math.max(0, steps.indexOf(customerStep));
-  return `<div class="session-progress"><span style="--progress:${Math.round(((current + 1) / steps.length) * 100)}%"></span></div>`;
+  const progress = Math.round(((current + 1) / steps.length) * 100);
+  return `
+    <div class="session-progress" aria-label="Survey progress">
+      <span style="--progress:${progress}%"></span>
+    </div>
+    <div class="progress-meta">
+      <strong>${progress}% complete</strong>
+      <span>${customerStep === "done" ? "Finished" : `Step ${Math.min(current + 1, 6)} of 6`}</span>
+    </div>
+  `;
 }
 
 function profilePreview() {
   const copy = surveyCopy();
+  const questions = profileQuestionSet();
+  const index = Math.min(profileQuestionIndex, Math.max(questions.length - 1, 0));
+  const question = questions[index];
+  const isLast = index >= questions.length - 1;
   return `
+    <div class="survey-visual">
+      <img src="./assets/survey-atmosphere.png" alt="" />
+      <span>Sunday Staples Inner Circle</span>
+    </div>
     <div class="phone-head">
       <span>Step 1 of 6</span>
-      <strong>Profile</strong>
+      <strong>${index + 1} / ${questions.length}</strong>
     </div>
-    <h2>${copy.profileHeading}</h2>
-    <p class="hint">${copy.profileHint}</p>
-    <div class="profile-form">
-      ${profileQuestionSet().map((question) => profileQuestion(question)).join("")}
+    <div class="profile-intro">
+      <h2>${copy.profileHeading}</h2>
+      <p class="hint">${copy.profileHint}</p>
     </div>
-    <button class="primary-button full-width" data-action="save-profile">${copy.profileStartButton}</button>
+    <div class="profile-form compact-profile">
+      ${profileQuestion(question)}
+    </div>
+    <div class="profile-nav">
+      <button class="ghost-button" data-action="profile-back" ${index === 0 ? "disabled" : ""}>Back</button>
+      <button class="primary-button" data-action="save-profile-question">${isLast ? copy.profileStartButton : "Next"}</button>
+    </div>
   `;
 }
 
@@ -1407,6 +1491,7 @@ function singleDesignPrompt(asset) {
 function completePreview() {
   return `
     <div class="complete">
+      <div class="completion-mark">✓</div>
       <p class="eyebrow">Preview complete</p>
       <h2>Thank you. Your influence has been recorded.</h2>
       <p class="hint">Your feedback helps shape what Sunday Staples launches next. In the live version, this is where Sunday Points or other rewards would be confirmed.</p>
@@ -1421,7 +1506,7 @@ function assetsWithTag(tag) {
 
 function firstImpressionMatches() {
   const matches = [];
-  syncFirstRoundsFromRepository();
+  syncRepositoryTagsFromFirstRounds();
   state.showroom.firstRounds.forEach((round, roundIndex) => {
     const tag = `Round ${roundIndex + 1}`;
     const assets = uniqueIds(round).map(assetById).filter(Boolean);
@@ -1554,10 +1639,7 @@ function bindEvents() {
   document.querySelectorAll("[data-first-round]").forEach((checkbox) => {
     checkbox.addEventListener("change", () => {
       const roundIndex = Number(checkbox.dataset.firstRound);
-      const asset = assetById(checkbox.value);
-      if (asset && checkbox.checked) asset.tags = [defaultTags[roundIndex] || defaultTags[0]];
-      if (asset && !checkbox.checked) asset.tags = [defaultTags[0]];
-      syncFirstRoundsFromRepository();
+      moveAssetToFirstRound(checkbox.value, checkbox.checked ? roundIndex : -1);
       saveState();
       render();
     });
@@ -1618,7 +1700,7 @@ function bindEvents() {
   document.querySelector("[data-action='save-backend']")?.addEventListener("click", () => {
     updateProfileQuestionsFromForm();
     updateFirstDriversFromForm();
-    syncFirstRoundsFromRepository();
+    syncRepositoryTagsFromFirstRounds();
     saveState();
     saveNotice = backendTab === "profile" ? "Profile questions saved. Preview has been updated." : "Survey setup saved. Preview has been updated.";
     render();
@@ -1645,11 +1727,42 @@ function bindEvents() {
     render();
   });
 
+  document.querySelector("[data-action='save-admin-credentials']")?.addEventListener("click", () => {
+    const username = document.querySelector("[data-admin-credential='username']")?.value.trim() || defaultAdminCredentials.username;
+    const password = document.querySelector("[data-admin-credential='password']")?.value || defaultAdminCredentials.password;
+    state.adminCredentials = normaliseAdminCredentials({ username, password });
+    saveState();
+    saveNotice = "Admin credentials saved.";
+    render();
+  });
+
   document.querySelector("[data-action='save-profile']")?.addEventListener("click", () => {
     document.querySelectorAll("[data-profile-group]").forEach((group) => {
       const selected = [...group.querySelectorAll("input:checked")].map((input) => input.value);
       draftResponse.profile[group.dataset.profileGroup] = group.dataset.profileMultiple === "true" ? selected : selected[0] || "";
     });
+    customerStep = "first";
+    render();
+  });
+
+  document.querySelector("[data-action='profile-back']")?.addEventListener("click", () => {
+    profileQuestionIndex = Math.max(0, profileQuestionIndex - 1);
+    render();
+  });
+
+  document.querySelector("[data-action='save-profile-question']")?.addEventListener("click", () => {
+    const group = document.querySelector("[data-profile-group]");
+    if (group) {
+      const selected = [...group.querySelectorAll("input:checked")].map((input) => input.value);
+      draftResponse.profile[group.dataset.profileGroup] = group.dataset.profileMultiple === "true" ? selected : selected[0] || "";
+    }
+    const questions = profileQuestionSet();
+    if (profileQuestionIndex < questions.length - 1) {
+      profileQuestionIndex += 1;
+      render();
+      return;
+    }
+    profileQuestionIndex = 0;
     customerStep = "first";
     render();
   });
@@ -1749,6 +1862,7 @@ function bindEvents() {
 
   document.querySelector("[data-action='restart-preview']")?.addEventListener("click", () => {
     customerStep = "profile";
+    profileQuestionIndex = 0;
     customerMatch = 0;
     customerRound = 0;
     purchaseRound = 0;
@@ -1815,7 +1929,7 @@ async function addUploadedFiles(files) {
       category: "Shoe concept",
       material: "To be confirmed",
       rrp: 159,
-      tags: [defaultTags[0]],
+      tags: [notSelectedTag],
       image,
       crop: { x: 50, y: 50, zoom: 100, left: 8, top: 8, width: 84, height: 84, aspect: "1:1" }
     });
