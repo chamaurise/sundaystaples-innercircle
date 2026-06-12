@@ -6,10 +6,10 @@ Private Sunday Staples prototype for collecting structured design feedback from 
 
 - Provides an Admin area for preparing survey sessions.
 - Supports a central shoe concept repository with image upload, labels, pricing, tags, and crop controls.
-- Lets Admin users configure First Impressions, Purchase Intent, Occasion Fit, Price & Value, Founder Action, and Results.
+- Lets Admin users configure First Impressions, Purchase Intent, Buying Propensity, Price & Value, Founder Action, and Results.
 - Provides a participant Preview flow optimised for quick mobile-style feedback.
 - Stores test responses locally for file previews, and can sync shared online state on Vercel when Vercel KV/Redis is connected.
-- Shows Results with standout shoe thumbnails, reasons, purchase intent, price confidence, occasion fit, and recommended founder actions.
+- Shows Results with standout shoe thumbnails, reasons, purchase intent, price confidence, buying propensity, and recommended founder actions.
 
 ## Local Use
 

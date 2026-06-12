@@ -15,7 +15,8 @@ const notSelectedTag = "Not selected";
 const roundTagOptions = [...defaultTags, notSelectedTag];
 const firstDriverLimit = 3;
 const actionChoices = ["Launch as is", "Launch in another colour", "Tweak the shape", "Change the material", "Lower the price", "Market it differently", "Drop it"];
-const occasionChoices = ["Work", "Weekend", "Dinner", "Wedding / event", "Holiday", "Daily errands", "I would not wear this"];
+const buyingPropensitySignal = "Top 3 buying propensity";
+const topBuyingPickLimit = 3;
 const previousProfileHeading = "First, help us understand your style.";
 const previousPriceComfortOptions = ["Under $80", "$80-$120", "$120-$160", "$160-$220", "$220+"];
 const priceComfortOptions = ["Under $20", "$20 - $40", "$40 - $60", "$60 - $80", "$80 - $120", "$120+"];
@@ -42,7 +43,7 @@ const backendTabs = [
   { id: "profile", label: "Profile", helper: "Segments" },
   { id: "first", label: "First Impressions", helper: "Head-to-head" },
   { id: "purchase", label: "Purchase Intent", helper: "Rank 1-5" },
-  { id: "occasion", label: "Occasion Fit", helper: "Use cases" },
+  { id: "occasion", label: "Buying Propensity", helper: "Top 3 picks" },
   { id: "price", label: "Price & Value", helper: "Price sliders" },
   { id: "action", label: "Founder Action", helper: "Decisions" },
   { id: "results", label: "Results", helper: "Live readout" }
@@ -51,7 +52,7 @@ const surveySteps = [
   { id: "profile", label: "Participant Profile", helper: "Customer segment questions" },
   { id: "first", label: "First Impressions", helper: "Head-to-head design battles" },
   { id: "purchase", label: "Purchase Intent", helper: "Rank the most likely buys" },
-  { id: "occasion", label: "Occasion Fit", helper: "Where customers would wear it" },
+  { id: "occasion", label: "Buying Propensity", helper: "Choose top 3 shoes" },
   { id: "price", label: "Price & Value", helper: "Good-value price sliders" },
   { id: "action", label: "Founder Action", helper: "Launch, tweak, reprice, or drop" }
 ];
@@ -630,7 +631,7 @@ function overviewSection() {
       <div>
         <p class="eyebrow">Admin reset</p>
         <h1>Design Showroom Builder</h1>
-        <p class="lede">Upload and prepare concepts once, then structure a guided research session across profile, launch excitement, purchase intent, occasion fit, value, and founder action.</p>
+        <p class="lede">Upload and prepare concepts once, then structure a guided research session across profile, launch excitement, purchase intent, buying propensity, value, and founder action.</p>
       </div>
       <div class="metrics">
         <div><strong>${state.assets.length}</strong><span>concepts</span></div>
@@ -957,9 +958,9 @@ function occasionFitSection() {
     <section class="panel">
       <div class="section-head">
         <div>
-          <p class="eyebrow">4. Occasion Fit</p>
-          <h2>Select designs to test for use cases</h2>
-          <p class="hint">Customers choose where they would most likely wear each design. This helps with merchandising, product naming, and campaign angles.</p>
+          <p class="eyebrow">4. Buying Propensity</p>
+          <h2>Select designs for the top 3 buying-propensity pick</h2>
+          <p class="hint">Customers scroll through these shoes and choose the three they would be most likely to buy, in no particular order.</p>
         </div>
       </div>
       <div class="price-builder">
@@ -1034,7 +1035,7 @@ function resultsSection() {
         <div>
           <p class="eyebrow">Data scientist readout</p>
           <h2>Which shoes are winning, and why?</h2>
-          <p class="hint">Combines profile, launch excitement, purchase ranking, occasion fit, price confidence, and founder action into one decision view.</p>
+          <p class="hint">Combines profile, launch excitement, purchase ranking, buying propensity, price confidence, and founder action into one decision view.</p>
         </div>
       </div>
       <div class="results-grid">
@@ -1043,7 +1044,7 @@ function resultsSection() {
         <div><strong>${analytics.leaders.first?.name || "-"}</strong><span>First-impression winner</span></div>
         <div><strong>${analytics.leaders.purchase?.name || "-"}</strong><span>Most sellable</span></div>
         <div><strong>${analytics.leaders.action?.name || "-"}</strong><span>Clearest launch action</span></div>
-        <div><strong>${analytics.leaders.occasion?.name || "-"}</strong><span>Strongest occasion fit</span></div>
+        <div><strong>${analytics.leaders.occasion?.name || "-"}</strong><span>Top 3 buying signal</span></div>
       </div>
       <div class="standout-panel">
         <div class="section-head">
@@ -1068,7 +1069,7 @@ function resultsSection() {
           <strong>Why it won</strong>
           <strong>Purchase</strong>
           <strong>Price</strong>
-          <strong>Occasion</strong>
+          <strong>Top 3</strong>
           <strong>Action</strong>
         </div>
         ${analytics.rows.map(resultAnalyticsRow).join("") || `<div class="empty-row">No responses yet. Use Preview to create test data.</div>`}
@@ -1086,7 +1087,7 @@ function standoutShoes(analytics) {
     ["First-impression winner", analytics.leaders.first],
     ["Most sellable", analytics.leaders.purchase],
     ["Best price confidence", analytics.leaders.price],
-    ["Strongest occasion fit", analytics.leaders.occasion],
+    ["Top 3 buying signal", analytics.leaders.occasion],
     ["Clearest founder action", analytics.leaders.action],
     ...analytics.rows.slice(0, 4).map((row, index) => [`Top ${index + 1} overall`, row])
   ];
@@ -1132,7 +1133,7 @@ function resultAnalyticsRow(row) {
       <div><strong>${row.topDriver || "-"}</strong><span>${driverSummary(row)}</span></div>
       <div><strong>${row.topOneCount}</strong><span>avg rank ${row.averageRank || "-"}</span></div>
       <div><strong>${row.averageAcceptedPrice ? `$${row.averageAcceptedPrice}` : "-"}</strong><span>${row.priceRetention ? `${row.priceRetention}% of RRP accepted` : "no price data"}</span></div>
-      <div><strong>${row.topOccasion || "-"}</strong><span>${summaryFromCounts(row.occasions, "No occasion data")}</span></div>
+      <div><strong>${topCount(row.occasions) || "-"}</strong><span>${summaryFromCounts(row.occasions, "No top 3 data")}</span></div>
       <div><strong>${row.topAction || "-"}</strong><span>${summaryFromCounts(row.actions, "No action data")}</span></div>
     </div>
   `;
@@ -1295,7 +1296,7 @@ function buildAnalyticsConclusions(leaders, rows) {
   }
 
   if (leaders.occasion) {
-    conclusions.push(`${leaders.occasion.name} has the clearest use case: customers most often imagine it for ${leaders.occasion.topOccasion}. This is useful for merchandising copy and campaign imagery.`);
+    conclusions.push(`${leaders.occasion.name} is one of the clearest high-propensity picks, appearing in customers' top 3 buying choices ${topCount(leaders.occasion.occasions)} time${plural(topCount(leaders.occasion.occasions))}.`);
   }
 
   if (leaders.action) {
@@ -1509,26 +1510,46 @@ function rankThumb(asset, index) {
 }
 
 function occasionPreview() {
-  const id = state.showroom.occasionItems[customerRound];
-  if (!id) {
+  const items = uniqueIds(state.showroom.occasionItems || []).map(assetById).filter(Boolean);
+  if (!items.length) {
     advanceFromStep("occasion");
     customerRound = 0;
     priceIndex = 0;
     render();
     return "";
   }
-  const asset = assetById(id);
+  const pickLimit = Math.min(topBuyingPickLimit, items.length);
+  const selected = selectedOccasionIds(items.map((asset) => asset.id));
+  const pickLabel = pickLimit === 3 ? "three" : String(pickLimit);
   return `
     <div class="phone-head">
       <span>${stepLabel("occasion")}</span>
-      <strong>${customerRound + 1} / ${state.showroom.occasionItems.length}</strong>
+      <strong>${selected.length} / ${pickLimit} selected</strong>
     </div>
-    <h2>Where would you most likely wear this design?</h2>
-    <p class="hint">Choose the occasion that feels most natural. This helps us understand how to position the product.</p>
-    ${singleDesignPrompt(asset)}
-    <div class="option-grid">
-      ${occasionChoices.map((choice) => `<button type="button" data-action="save-occasion" data-value="${escapeAttribute(choice)}">${choice}</button>`).join("")}
+    <h2>Which ${pickLabel} design${pickLimit === 1 ? "" : "s"} would you be most likely to buy?</h2>
+    <p class="hint">Scroll through the shoes and choose your top ${pickLimit} in any order.</p>
+    <div class="top-three-meter">
+      <span>${selected.length === pickLimit ? "Ready to continue" : `Choose ${pickLimit - selected.length} more`}</span>
+      <strong>${selected.length}/${pickLimit}</strong>
     </div>
+    <div class="top-three-grid">
+      ${items.map((asset) => topThreeShoeCard(asset, selected)).join("")}
+    </div>
+    <div class="sticky-save">
+      <button class="primary-button" data-action="save-occasion-top" ${selected.length === pickLimit ? "" : "disabled"}>Save top ${pickLimit} shoes</button>
+    </div>
+  `;
+}
+
+function topThreeShoeCard(asset, selected) {
+  const isSelected = selected.includes(asset.id);
+  return `
+    <button type="button" class="top-three-card ${isSelected ? "selected" : ""}" data-action="toggle-occasion-pick" data-id="${asset.id}">
+      <span class="top-three-check">${isSelected ? "Selected" : "Tap to choose"}</span>
+      <img style="${imageStyle(asset)}" src="${asset.image}" alt="${escapeAttribute(asset.name)}" />
+      <strong>${asset.name}</strong>
+      <small>${asset.category} · ${asset.material}</small>
+    </button>
   `;
 }
 
@@ -1934,15 +1955,26 @@ function bindEvents() {
     render();
   });
 
-  document.querySelectorAll("[data-action='save-occasion']").forEach((button) => {
+  document.querySelectorAll("[data-action='toggle-occasion-pick']").forEach((button) => {
     button.addEventListener("click", () => {
-      draftResponse.occasionFit.push({
-        id: state.showroom.occasionItems[customerRound],
-        occasion: button.dataset.value
-      });
-      customerRound += 1;
+      toggleOccasionPick(button.dataset.id);
       render();
     });
+  });
+
+  document.querySelector("[data-action='save-occasion-top']")?.addEventListener("click", () => {
+    const expected = uniqueIds(state.showroom.occasionItems || []);
+    const pickLimit = Math.min(topBuyingPickLimit, expected.length);
+    const selected = selectedOccasionIds(expected);
+    if (selected.length !== pickLimit) return;
+    draftResponse.occasionFit = selected.map((id) => ({
+      id,
+      occasion: buyingPropensitySignal
+    }));
+    advanceFromStep("occasion");
+    customerRound = 0;
+    priceIndex = 0;
+    render();
   });
 
   document.querySelector("[data-action='price-slider']")?.addEventListener("input", (event) => {
@@ -2244,6 +2276,24 @@ function currentPurchaseRanking(fallbackIds = []) {
   const clean = uniqueRanking(saved, uniqueIds(fallbackIds));
   draftResponse.purchaseIntent[purchaseRound] = { ...(draftResponse.purchaseIntent[purchaseRound] || {}), ranking: clean };
   return clean;
+}
+
+function selectedOccasionIds(fallbackIds = []) {
+  const allowed = uniqueIds(fallbackIds);
+  const pickLimit = Math.min(topBuyingPickLimit, allowed.length);
+  const selected = uniqueRanking((draftResponse.occasionFit || []).map((item) => item.id), allowed).slice(0, pickLimit);
+  draftResponse.occasionFit = selected.map((id) => ({ id, occasion: buyingPropensitySignal }));
+  return selected;
+}
+
+function toggleOccasionPick(id) {
+  const allowed = uniqueIds(state.showroom.occasionItems || []);
+  const selected = selectedOccasionIds(allowed);
+  if (!allowed.includes(id)) return;
+  const next = selected.includes(id)
+    ? selected.filter((itemId) => itemId !== id)
+    : [...selected, id].slice(0, Math.min(topBuyingPickLimit, allowed.length));
+  draftResponse.occasionFit = next.map((itemId) => ({ id: itemId, occasion: buyingPropensitySignal }));
 }
 
 function readRankingOrder() {
