@@ -772,6 +772,7 @@ function assetCard(asset) {
         <div class="crop-presets">
           ${["1:1", "4:6", "6:4", "4:5"].map((aspect) => `<button type="button" class="${normaliseCrop(asset).aspect === aspect ? "active" : ""}" data-crop-aspect="${aspect}">${aspect}</button>`).join("")}
         </div>
+        <button type="button" class="danger-button" data-action="delete-asset">Delete picture</button>
       </div>
     </article>
   `;
@@ -1738,6 +1739,9 @@ function bindEvents() {
       field.addEventListener("input", () => updateAssetFromCard(card));
       field.addEventListener("change", () => updateAssetFromCard(card));
     });
+    card.querySelector("[data-action='delete-asset']")?.addEventListener("click", () => {
+      deleteAsset(card.dataset.asset);
+    });
     bindCropDrag(card);
   });
 
@@ -2041,6 +2045,30 @@ async function addUploadedFiles(files) {
     });
   }
   saveState();
+  render();
+}
+
+function deleteAsset(assetId) {
+  const asset = assetById(assetId);
+  if (!asset) return;
+  const shouldDelete = window.confirm(`Delete "${asset.name}" from the repository? This removes it from the survey setup too.`);
+  if (!shouldDelete) return;
+  state.assets = state.assets.filter((item) => item.id !== assetId);
+  state.showroom.firstRounds = state.showroom.firstRounds.map((round) => round.filter((id) => id !== assetId));
+  state.showroom.purchaseRounds = state.showroom.purchaseRounds.map((round) => round.filter((id) => id !== assetId));
+  state.showroom.occasionItems = state.showroom.occasionItems.filter((id) => id !== assetId);
+  state.showroom.priceItems = state.showroom.priceItems.filter((item) => item.id !== assetId);
+  state.showroom.actionItems = state.showroom.actionItems.filter((id) => id !== assetId);
+  draftResponse.firstImpressions = draftResponse.firstImpressions.filter((item) => item.winner !== assetId);
+  draftResponse.purchaseIntent = draftResponse.purchaseIntent.map((round) => ({
+    ...round,
+    ranking: (round.ranking || []).filter((id) => id !== assetId)
+  }));
+  draftResponse.occasionFit = draftResponse.occasionFit.filter((item) => item.id !== assetId);
+  draftResponse.priceValue = draftResponse.priceValue.filter((item) => item.id !== assetId);
+  draftResponse.founderAction = draftResponse.founderAction.filter((item) => item.id !== assetId);
+  saveState();
+  saveNotice = `"${asset.name}" has been deleted from the repository.`;
   render();
 }
 
