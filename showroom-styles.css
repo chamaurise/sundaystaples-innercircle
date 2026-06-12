@@ -1391,6 +1391,22 @@ select {
   background: rgba(36,95,87,0.08);
 }
 
+.profile-text-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 13px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: #fff;
+}
+
+.profile-text-input:focus {
+  border-color: var(--green);
+  outline: 3px solid rgba(36,95,87,0.12);
+}
+
 .full-width {
   width: 100%;
 }

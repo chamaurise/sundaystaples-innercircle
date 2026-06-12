@@ -16,9 +16,9 @@ const roundTagOptions = [...defaultTags, notSelectedTag];
 const actionChoices = ["Launch as is", "Launch in another colour", "Tweak the shape", "Change the material", "Lower the price", "Market it differently", "Drop it"];
 const occasionChoices = ["Work", "Weekend", "Dinner", "Wedding / event", "Holiday", "Daily errands", "I would not wear this"];
 const defaultProfileQuestions = [
+  { key: "contactName", label: "Name or Instagram @ handle", type: "text", placeholder: "Your name or @handle", options: [], multiple: false },
   { key: "ageRange", label: "Age range", options: ["Under 25", "25-34", "35-44", "45-54", "55+"], multiple: false },
   { key: "shoePreference", label: "Usual shoe preference", options: ["Flats", "Heels", "Sandals", "Sneakers", "Boots"], multiple: true },
-  { key: "stylePreference", label: "Style preference", options: ["Classic", "Feminine", "Minimal", "Bold", "Trend-led"], multiple: true },
   { key: "purchaseFrequency", label: "How often do you buy shoes?", options: ["Monthly", "Quarterly", "A few times a year", "Only when needed"], multiple: false },
   { key: "priceComfort", label: "Comfortable price range", options: ["Under $80", "$80-$120", "$120-$160", "$160-$220", "$220+"], multiple: false }
 ];
@@ -193,14 +193,17 @@ function cloneProfileQuestions(questions) {
 function normaliseProfileQuestions(questions) {
   const fallback = cloneProfileQuestions(defaultProfileQuestions);
   if (!Array.isArray(questions) || !questions.length) return fallback;
-  return fallback.map((defaultQuestion, index) => {
-    const saved = questions[index] || {};
+  return fallback.map((defaultQuestion) => {
+    const saved = questions.find((question) => question?.key === defaultQuestion.key) || {};
+    const isText = defaultQuestion.type === "text";
     const options = Array.isArray(saved.options) ? saved.options.filter(Boolean) : defaultQuestion.options;
     return {
       key: defaultQuestion.key,
       label: String(saved.label || defaultQuestion.label).trim(),
-      options: options.length ? options : defaultQuestion.options,
-      multiple: Boolean(defaultQuestion.multiple)
+      type: defaultQuestion.type || "choice",
+      placeholder: defaultQuestion.placeholder || "",
+      options: isText ? [] : (options.length ? options : defaultQuestion.options),
+      multiple: isText ? false : Boolean(defaultQuestion.multiple)
     };
   });
 }
@@ -211,7 +214,7 @@ function profileQuestionSet() {
 }
 
 function primaryProfileKey() {
-  return profileQuestionSet()[0]?.key || "ageRange";
+  return profileQuestionSet().find((question) => question.type !== "text")?.key || "ageRange";
 }
 
 function surveyCopy() {
@@ -806,15 +809,23 @@ function profileSection() {
 }
 
 function profileEditorCard(question, index) {
+  const isText = question.type === "text";
   return `
     <article class="profile-editor-card" data-profile-question="${index}">
       <label>Question ${index + 1}
         <input data-profile-label="${index}" value="${escapeAttribute(question.label)}" />
       </label>
-      <label>Answer choices
-        <textarea data-profile-options="${index}" rows="3">${escapeAttribute(question.options.join("\n"))}</textarea>
-        <span>Put each option on a new line. ${question.multiple ? "Participants may choose more than one answer for this question." : "Participants choose one answer for this question."}</span>
-      </label>
+      ${isText ? `
+        <label>Placeholder
+          <input data-profile-placeholder="${index}" value="${escapeAttribute(question.placeholder)}" />
+          <span>Participants type their name or Instagram handle for this question.</span>
+        </label>
+      ` : `
+        <label>Answer choices
+          <textarea data-profile-options="${index}" rows="3">${escapeAttribute(question.options.join("\n"))}</textarea>
+          <span>Put each option on a new line. ${question.multiple ? "Participants may choose more than one answer for this question." : "Participants choose one answer for this question."}</span>
+        </label>
+      `}
     </article>
   `;
 }
@@ -1356,9 +1367,17 @@ function profilePreview() {
 }
 
 function profileQuestion(question) {
+  if (question.type === "text") {
+    return `
+      <fieldset class="choice-group" data-profile-group="${question.key}" data-profile-type="text">
+        <legend>${question.label}</legend>
+        <input class="profile-text-input" type="text" name="${question.key}" placeholder="${escapeAttribute(question.placeholder)}" autocomplete="name" />
+      </fieldset>
+    `;
+  }
   const inputType = question.multiple ? "checkbox" : "radio";
   return `
-    <fieldset class="choice-group" data-profile-group="${question.key}" data-profile-multiple="${question.multiple ? "true" : "false"}">
+    <fieldset class="choice-group" data-profile-group="${question.key}" data-profile-type="choice" data-profile-multiple="${question.multiple ? "true" : "false"}">
       <legend>${question.label}${question.multiple ? " (choose all that apply)" : ""}</legend>
       ${question.options.map((option, index) => `
         <label class="choice-pill">
@@ -1822,8 +1841,7 @@ function bindEvents() {
 
   document.querySelector("[data-action='save-profile']")?.addEventListener("click", () => {
     document.querySelectorAll("[data-profile-group]").forEach((group) => {
-      const selected = [...group.querySelectorAll("input:checked")].map((input) => input.value);
-      draftResponse.profile[group.dataset.profileGroup] = group.dataset.profileMultiple === "true" ? selected : selected[0] || "";
+      draftResponse.profile[group.dataset.profileGroup] = profileGroupValue(group);
     });
     advanceFromStep("profile");
     render();
@@ -1837,8 +1855,7 @@ function bindEvents() {
   document.querySelector("[data-action='save-profile-question']")?.addEventListener("click", () => {
     const group = document.querySelector("[data-profile-group]");
     if (group) {
-      const selected = [...group.querySelectorAll("input:checked")].map((input) => input.value);
-      draftResponse.profile[group.dataset.profileGroup] = group.dataset.profileMultiple === "true" ? selected : selected[0] || "";
+      draftResponse.profile[group.dataset.profileGroup] = profileGroupValue(group);
     }
     const questions = profileQuestionSet();
     if (profileQuestionIndex < questions.length - 1) {
@@ -1975,6 +1992,7 @@ function updateProfileQuestionsFromForm() {
   };
   state.showroom.profileQuestions = normaliseProfileQuestions(current.map((question, index) => {
     const label = document.querySelector(`[data-profile-label='${index}']`)?.value.trim() || question.label;
+    const placeholder = document.querySelector(`[data-profile-placeholder='${index}']`)?.value.trim() || question.placeholder;
     const rawOptions = document.querySelector(`[data-profile-options='${index}']`)?.value || "";
     const options = rawOptions
       .split(/\r?\n|,/)
@@ -1984,9 +2002,18 @@ function updateProfileQuestionsFromForm() {
     return {
       ...question,
       label,
+      placeholder,
       options: options.length ? options : question.options
     };
   }));
+}
+
+function profileGroupValue(group) {
+  if (group.dataset.profileType === "text") {
+    return group.querySelector("input")?.value.trim() || "";
+  }
+  const selected = [...group.querySelectorAll("input:checked")].map((input) => input.value);
+  return group.dataset.profileMultiple === "true" ? selected : selected[0] || "";
 }
 
 function updateFirstDriversFromForm() {
