@@ -1939,6 +1939,16 @@ function bindEvents() {
   bindRankingDrag();
 
   document.querySelector("[data-action='save-purchase-round']")?.addEventListener("click", () => {
+    savePurchaseRound();
+  });
+
+  document.querySelector("[data-action='save-purchase-round']")?.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    savePurchaseRound();
+  });
+
+  function savePurchaseRound() {
+    if (customerStep !== "purchase") return;
     const expected = uniqueIds(state.showroom.purchaseRounds[purchaseRound] || []);
     const ranking = uniqueRanking(readRankingOrder(), expected);
     if (!expected.length || ranking.length !== expected.length || new Set(ranking).size !== ranking.length) {
@@ -1952,8 +1962,13 @@ function bindEvents() {
       driver: ""
     };
     purchaseRound += 1;
+    if (purchaseRound >= state.showroom.purchaseRounds.length) {
+      advanceFromStep("purchase");
+      customerRound = 0;
+      purchaseRound = 0;
+    }
     render();
-  });
+  }
 
   document.querySelectorAll("[data-action='toggle-occasion-pick']").forEach((button) => {
     button.addEventListener("click", () => {
