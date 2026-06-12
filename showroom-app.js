@@ -14,6 +14,8 @@ const defaultTags = ["Round 1", "Round 2", "Round 3"];
 const notSelectedTag = "Not selected";
 const roundTagOptions = [...defaultTags, notSelectedTag];
 const firstDriverLimit = 3;
+const defaultCropZoom = 110;
+const previousCropZoom = 100;
 const actionChoices = ["Launch as is", "Launch in another colour", "Tweak the shape", "Change the material", "Lower the price", "Market it differently", "Drop it"];
 const buyingPropensitySignal = "Top 3 buying propensity";
 const topBuyingPickLimit = 3;
@@ -118,7 +120,7 @@ function seedAssets() {
     rrp: Number(String(concept.price || "159").replace(/[^0-9.]/g, "")) || 159,
     tags: [defaultTags[index % defaultTags.length]],
     image: concept.image,
-    crop: { x: 50, y: 50, zoom: 100, left: 8, top: 8, width: 84, height: 84, aspect: "1:1" }
+    crop: { x: 50, y: 50, zoom: defaultCropZoom, left: 8, top: 8, width: 84, height: 84, aspect: "1:1" }
   }));
 }
 
@@ -157,6 +159,7 @@ function normaliseState(saved) {
   const fallback = defaultState();
   saved.assets = (saved.assets || fallback.assets).map((asset) => ({
     ...asset,
+    crop: normaliseCrop(asset, true),
     tags: normaliseRoundTags(asset.tags)
   }));
   saved.showroom = saved.showroom || {};
@@ -491,11 +494,12 @@ function escapeCssUrl(value) {
   return String(value || "").replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
-function normaliseCrop(asset) {
+function normaliseCrop(asset, migrateDefaultZoom = false) {
+  const savedZoom = Number(asset?.crop?.zoom ?? defaultCropZoom);
   return {
     x: Number(asset?.crop?.x ?? 50),
     y: Number(asset?.crop?.y ?? 50),
-    zoom: Number(asset?.crop?.zoom ?? 100),
+    zoom: migrateDefaultZoom && savedZoom === previousCropZoom ? defaultCropZoom : savedZoom,
     left: Number(asset?.crop?.left ?? 8),
     top: Number(asset?.crop?.top ?? 8),
     width: Number(asset?.crop?.width ?? 84),
@@ -2040,7 +2044,7 @@ function updateAssetFromCard(card, shouldSave = true) {
   asset.category = value("category").trim() || "Shoe concept";
   asset.material = value("material").trim() || "To be confirmed";
   asset.rrp = Number(value("rrp")) || 159;
-  asset.crop.zoom = Number(value("zoom")) || 100;
+  asset.crop.zoom = Number(value("zoom")) || defaultCropZoom;
   asset.tags = normaliseRoundTags(value("tags"));
   syncFirstRoundsFromRepository();
   if (shouldSave) saveState();
@@ -2100,7 +2104,7 @@ async function addUploadedFiles(files) {
       rrp: 159,
       tags: [notSelectedTag],
       image,
-      crop: { x: 50, y: 50, zoom: 100, left: 8, top: 8, width: 84, height: 84, aspect: "1:1" }
+      crop: { x: 50, y: 50, zoom: defaultCropZoom, left: 8, top: 8, width: 84, height: 84, aspect: "1:1" }
     });
   }
   saveState();
