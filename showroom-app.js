@@ -157,7 +157,7 @@ function loadState() {
 
 function normaliseState(saved) {
   const fallback = defaultState();
-  saved.assets = (saved.assets || fallback.assets).map((asset) => ({
+  saved.assets = mergeAssetsWithSource(saved.assets, fallback.assets).map((asset) => ({
     ...asset,
     crop: normaliseCrop(asset, true),
     tags: normaliseRoundTags(asset.tags)
@@ -185,6 +185,15 @@ function normaliseState(saved) {
     completedAt: response.completedAt || null
   }));
   return saved;
+}
+
+function mergeAssetsWithSource(savedAssets, sourceAssets) {
+  const merged = Array.isArray(savedAssets) && savedAssets.length ? [...savedAssets] : [];
+  const existingIds = new Set(merged.map((asset) => asset.id));
+  (sourceAssets || []).forEach((asset) => {
+    if (!existingIds.has(asset.id)) merged.push(asset);
+  });
+  return merged.length ? merged : sourceAssets || [];
 }
 
 function cloneProfileQuestions(questions) {
@@ -1562,8 +1571,8 @@ function occasionPreview() {
 function topThreeShoeCard(asset, selected) {
   const isSelected = selected.includes(asset.id);
   return `
-    <button type="button" class="top-three-card ${isSelected ? "selected" : ""}" data-action="toggle-occasion-pick" data-id="${asset.id}">
-      <span class="top-three-check">${isSelected ? "Selected" : "Tap to choose"}</span>
+    <button type="button" class="top-three-card ${isSelected ? "selected" : ""}" data-action="toggle-occasion-pick" data-id="${asset.id}" aria-pressed="${isSelected ? "true" : "false"}">
+      <span class="top-three-check">${isSelected ? "Tap to remove" : "Tap to choose"}</span>
       <img style="${imageStyle(asset)}" src="${asset.image}" alt="${escapeAttribute(asset.name)}" />
       <strong>${asset.name}</strong>
       <small>${asset.category} · ${asset.material}</small>
@@ -1978,7 +1987,24 @@ function bindEvents() {
   }
 
   document.querySelectorAll("[data-action='toggle-occasion-pick']").forEach((button) => {
-    button.addEventListener("click", () => {
+    let start = null;
+    button.addEventListener("pointerdown", (event) => {
+      start = { x: event.clientX, y: event.clientY };
+    });
+    button.addEventListener("pointerup", (event) => {
+      const moved = start ? Math.hypot(event.clientX - start.x, event.clientY - start.y) : 0;
+      start = null;
+      if (moved > 12) return;
+      event.preventDefault();
+      toggleOccasionPick(button.dataset.id);
+      render();
+    });
+    button.addEventListener("pointercancel", () => {
+      start = null;
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
       toggleOccasionPick(button.dataset.id);
       render();
     });

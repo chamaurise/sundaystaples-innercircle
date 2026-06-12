@@ -1606,11 +1606,13 @@ select {
   color: var(--ink);
   padding: 12px;
   text-align: left;
+  touch-action: pan-y;
 }
 
 .top-three-card.selected {
   border-color: var(--green);
   background: rgba(36,95,87,0.08);
+  box-shadow: 0 10px 24px rgba(36,95,87,0.16);
 }
 
 .top-three-card img {
@@ -1648,6 +1650,7 @@ select {
   font-size: 12px;
   font-weight: 900;
   box-shadow: 0 5px 16px rgba(34, 28, 21, 0.12);
+  pointer-events: none;
 }
 
 .rank-plane {

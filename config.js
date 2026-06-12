@@ -36,7 +36,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
 
   reviewSessions: {
     "all-15": {
-      name: "All 15 Shoe Concepts",
+      name: "All 16 Shoe Concepts",
       designIds: [
         "concept-01",
         "concept-02",
@@ -52,9 +52,10 @@ window.SUNDAY_CIRCLE_CONFIG = {
         "concept-12",
         "concept-13",
         "concept-14",
-        "concept-15"
+        "concept-15",
+        "concept-16"
       ],
-      battleCount: 15
+      battleCount: 16
     },
     "pilot-5": {
       name: "Pilot 5 Concept Review",
@@ -227,6 +228,17 @@ window.SUNDAY_CIRCLE_CONFIG = {
       image: "./shoe-concepts/Sample 15.jpeg",
       c1: "#dce1f1",
       c2: "#8c6b2c",
+      note: "Upcoming Sunday Staples shoe design."
+    },
+    {
+      id: "concept-16",
+      name: "Cream Lace Oxford",
+      style: "Lace oxford",
+      material: "Cream lace",
+      price: "$159",
+      image: "./shoe-concepts/WhatsApp Image 2026-06-12 at 19.35.08.jpeg",
+      c1: "#f3eadf",
+      c2: "#8d735f",
       note: "Upcoming Sunday Staples shoe design."
     }
   ]
