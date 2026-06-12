@@ -1449,11 +1449,11 @@ select {
 .mobile-choice {
   position: relative;
   display: grid;
-  gap: 5px;
+  gap: 7px;
   text-align: left;
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 8px;
+  padding: 10px;
   background: #fff;
   color: var(--ink);
   overflow: hidden;
@@ -1480,9 +1480,15 @@ select {
   overflow-wrap: anywhere;
 }
 
+.mobile-choice strong {
+  font-size: 15px;
+  line-height: 1.18;
+}
+
 .mobile-choice span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.2;
 }
 
 .hover-drivers {
@@ -1490,8 +1496,8 @@ select {
   inset: 0;
   display: grid;
   align-content: center;
-  gap: 4px;
-  padding: 7px;
+  gap: 8px;
+  padding: 16px;
   background: rgba(16,16,15,0.78);
   opacity: 0;
   pointer-events: none;
@@ -1516,20 +1522,20 @@ select {
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0;
-  font-size: 10px;
-  line-height: 1;
+  font-size: 13px;
+  line-height: 1.05;
 }
 
 .hover-drivers button {
   border: 1px solid rgba(255,255,255,0.32);
-  border-radius: 7px;
+  border-radius: 9px;
   background: rgba(255,255,255,0.94);
   color: var(--ink);
-  padding: 5px 6px;
-  font-size: 10.5px;
+  padding: 10px 12px;
+  font-size: 14px;
   font-weight: 800;
-  line-height: 1.12;
-  min-height: 0;
+  line-height: 1.14;
+  min-height: 42px;
 }
 
 .option-grid {
@@ -1572,7 +1578,7 @@ select {
   margin: 12px 0;
   background: rgba(36,95,87,0.07);
   color: var(--green);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
 }
@@ -1594,13 +1600,13 @@ select {
 .top-three-card {
   position: relative;
   display: grid;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
   border: 2px solid var(--line);
   border-radius: 12px;
   background: #fff;
   color: var(--ink);
-  padding: 10px;
+  padding: 11px;
   text-align: left;
 }
 
@@ -1621,12 +1627,15 @@ select {
 
 .top-three-card strong {
   overflow-wrap: anywhere;
+  font-size: 16px;
+  line-height: 1.18;
 }
 
 .top-three-card small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .top-three-check {
@@ -1637,15 +1646,15 @@ select {
   border-radius: 999px;
   background: rgba(255,255,255,0.94);
   color: var(--green);
-  padding: 6px 8px;
-  font-size: 11px;
+  padding: 8px 10px;
+  font-size: 12px;
   font-weight: 900;
   box-shadow: 0 5px 16px rgba(34, 28, 21, 0.12);
 }
 
 .rank-plane {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   padding: 12px;
   border: 1px solid rgba(161,122,53,0.32);
   border-radius: 12px;
@@ -1675,10 +1684,10 @@ select {
 
 .rank-slot {
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 9px;
   align-items: center;
-  min-height: 118px;
+  min-height: 176px;
   border: 2px dashed rgba(161,122,53,0.48);
   border-radius: 12px;
   padding: 8px;
@@ -1703,8 +1712,8 @@ select {
 .rank-slot-marker span {
   display: inline-grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
   background: var(--black);
   color: white;
@@ -1712,9 +1721,9 @@ select {
 }
 
 .rank-slot-marker small {
-  max-width: 64px;
+  max-width: 54px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 900;
   line-height: 1.12;
   text-transform: uppercase;
@@ -1723,10 +1732,10 @@ select {
 .rank-thumb {
   position: relative;
   display: grid;
-  grid-template-columns: 18px minmax(92px, 34%) minmax(0, 1fr);
-  gap: 9px;
+  grid-template-columns: 16px minmax(148px, 58%) minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
-  min-height: 102px;
+  min-height: 158px;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 8px;
@@ -1743,8 +1752,8 @@ select {
 }
 
 .rank-grip {
-  width: 14px;
-  height: 42px;
+  width: 12px;
+  height: 58px;
   border-radius: 999px;
   background:
     radial-gradient(circle, rgba(32,32,32,0.36) 1.6px, transparent 2px) 0 0 / 7px 8px,
@@ -1755,10 +1764,15 @@ select {
 .rank-thumb small {
   display: block;
   color: var(--gold);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
   margin-bottom: 4px;
+}
+
+.rank-thumb strong {
+  font-size: 16px;
+  line-height: 1.18;
 }
 
 .rank-thumb img {
@@ -2086,11 +2100,22 @@ select {
   }
 
   .rank-thumb {
-    grid-template-columns: 16px minmax(82px, 36%) minmax(0, 1fr);
+    grid-template-columns: 14px minmax(128px, 56%) minmax(0, 1fr);
   }
 
   .rank-thumb img {
     width: 100%;
     height: auto;
+  }
+
+  .hover-drivers {
+    gap: 6px;
+    padding: 12px;
+  }
+
+  .hover-drivers button {
+    min-height: 38px;
+    padding: 8px 10px;
+    font-size: 13px;
   }
 }

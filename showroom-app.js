@@ -1475,7 +1475,7 @@ function purchasePreview() {
       <strong>${purchaseRound + 1} / ${state.showroom.purchaseRounds.length}</strong>
     </div>
     <h2>Rank which designs you would most likely buy within the next 30 days.</h2>
-    <p class="hint">Place your strongest purchase choice at #1. Press and drag each card into a numbered slot.</p>
+    <p class="hint">Place your strongest purchase choice at #1. Press and drag each card into a numbered slot; the page will scroll as you drag.</p>
     <div class="current-pick">
       <span>Current #1</span>
       <strong>${assetById(ranked[0])?.name || "-"}</strong>
@@ -1484,7 +1484,7 @@ function purchasePreview() {
       ${ranked.map((id, index) => rankThumb(assetById(id), index)).join("")}
     </div>
     <div class="sticky-save">
-      <button class="primary-button" data-action="save-purchase-round">Save ranking</button>
+      <button class="primary-button" data-action="save-purchase-round">Double tap to Save</button>
     </div>
   `;
 }
@@ -2204,6 +2204,7 @@ function round(value) {
 function bindRankingDrag() {
   const plane = document.querySelector("[data-rank-plane]");
   if (!plane) return;
+  const rankScroll = { frame: null };
 
   document.querySelectorAll(".rank-thumb[data-rank-id]").forEach((item) => {
     let drag = null;
@@ -2216,6 +2217,9 @@ function bindRankingDrag() {
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        scrollStart: window.scrollY,
         targetSlot: item.closest(".rank-slot")
       };
       item.setPointerCapture(event.pointerId);
@@ -2228,7 +2232,9 @@ function bindRankingDrag() {
     item.addEventListener("pointermove", (event) => {
       if (!drag || event.pointerId !== drag.pointerId) return;
       const deltaX = event.clientX - drag.startX;
-      const deltaY = event.clientY - drag.startY;
+      const deltaY = event.clientY - drag.startY + (window.scrollY - drag.scrollStart);
+      drag.lastX = event.clientX;
+      drag.lastY = event.clientY;
       item.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(1.02)`;
       item.style.zIndex = "6";
       item.style.pointerEvents = "none";
@@ -2240,12 +2246,14 @@ function bindRankingDrag() {
         slot.classList.add("drop-target");
         drag.targetSlot = slot;
       }
+      startRankAutoScroll(drag, item, rankScroll);
       event.preventDefault();
     });
 
     item.addEventListener("pointerup", (event) => {
       if (!drag || event.pointerId !== drag.pointerId) return;
       const targetId = drag.targetSlot?.querySelector(".rank-thumb[data-rank-id]")?.dataset.rankId;
+      stopRankAutoScroll(rankScroll);
       finishRankDrag(item, plane);
       if (targetId && targetId !== drag.id) {
         applyPurchaseReorder(drag.id, targetId);
@@ -2255,10 +2263,45 @@ function bindRankingDrag() {
     });
 
     item.addEventListener("pointercancel", () => {
+      stopRankAutoScroll(rankScroll);
       finishRankDrag(item, plane);
       drag = null;
     });
   });
+}
+
+function startRankAutoScroll(drag, item, scrollState) {
+  if (scrollState.frame) return;
+  const scrollStep = () => {
+    if (!drag) return;
+    const edge = 86;
+    const maxSpeed = 18;
+    let speed = 0;
+    if (drag.lastY < edge) speed = -Math.ceil(((edge - drag.lastY) / edge) * maxSpeed);
+    if (drag.lastY > window.innerHeight - edge) speed = Math.ceil(((drag.lastY - (window.innerHeight - edge)) / edge) * maxSpeed);
+    if (speed) {
+      window.scrollBy(0, speed);
+      const deltaX = drag.lastX - drag.startX;
+      const deltaY = drag.lastY - drag.startY + (window.scrollY - drag.scrollStart);
+      item.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(1.02)`;
+      item.style.pointerEvents = "none";
+      const slot = document.elementFromPoint(drag.lastX, drag.lastY)?.closest(".rank-slot");
+      item.style.pointerEvents = "";
+      document.querySelectorAll(".rank-slot.drop-target").forEach((node) => node.classList.remove("drop-target"));
+      if (slot) {
+        slot.classList.add("drop-target");
+        drag.targetSlot = slot;
+      }
+    }
+    scrollState.frame = window.requestAnimationFrame(scrollStep);
+  };
+  scrollState.frame = window.requestAnimationFrame(scrollStep);
+}
+
+function stopRankAutoScroll(scrollState) {
+  if (!scrollState.frame) return;
+  window.cancelAnimationFrame(scrollState.frame);
+  scrollState.frame = null;
 }
 
 function finishRankDrag(item, plane) {
