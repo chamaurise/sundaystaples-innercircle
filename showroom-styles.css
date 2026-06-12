@@ -1496,9 +1496,9 @@ select {
   inset: 0;
   display: grid;
   align-content: center;
-  gap: 8px;
-  padding: 16px;
-  background: rgba(16,16,15,0.78);
+  gap: clamp(10px, 3vw, 14px);
+  padding: clamp(18px, 5vw, 28px);
+  background: rgba(16,16,15,0.82);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.16s ease;
@@ -1519,23 +1519,24 @@ select {
 
 .hover-drivers small {
   color: rgba(255,255,255,0.78);
-  font-weight: 800;
+  font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0;
-  font-size: 13px;
+  font-size: clamp(16px, 4.4vw, 20px);
   line-height: 1.05;
 }
 
 .hover-drivers button {
-  border: 1px solid rgba(255,255,255,0.32);
-  border-radius: 9px;
+  border: 2px solid rgba(255,255,255,0.36);
+  border-radius: 12px;
   background: rgba(255,255,255,0.94);
   color: var(--ink);
-  padding: 10px 12px;
-  font-size: 14px;
-  font-weight: 800;
+  padding: clamp(14px, 4vw, 18px) clamp(14px, 4.5vw, 20px);
+  font-size: clamp(17px, 4.6vw, 21px);
+  font-weight: 900;
   line-height: 1.14;
-  min-height: 42px;
+  min-height: clamp(56px, 15vw, 72px);
+  box-shadow: 0 8px 22px rgba(0,0,0,0.18);
 }
 
 .option-grid {
@@ -2106,13 +2107,7 @@ select {
   }
 
   .hover-drivers {
-    gap: 6px;
-    padding: 12px;
-  }
-
-  .hover-drivers button {
-    min-height: 38px;
-    padding: 8px 10px;
-    font-size: 13px;
+    gap: 9px;
+    padding: 16px;
   }
 }
