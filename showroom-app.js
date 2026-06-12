@@ -13,26 +13,28 @@ const remoteStateUrl = "/api/state";
 const defaultTags = ["Round 1", "Round 2", "Round 3"];
 const notSelectedTag = "Not selected";
 const roundTagOptions = [...defaultTags, notSelectedTag];
+const firstDriverLimit = 3;
 const actionChoices = ["Launch as is", "Launch in another colour", "Tweak the shape", "Change the material", "Lower the price", "Market it differently", "Drop it"];
 const occasionChoices = ["Work", "Weekend", "Dinner", "Wedding / event", "Holiday", "Daily errands", "I would not wear this"];
+const previousProfileHeading = "First, help us understand your style.";
+const previousPriceComfortOptions = ["Under $80", "$80-$120", "$120-$160", "$160-$220", "$220+"];
+const priceComfortOptions = ["Under $20", "$20 - $40", "$40 - $60", "$60 - $80", "$80 - $120", "$120+"];
 const defaultProfileQuestions = [
   { key: "contactName", label: "Name or Instagram @ handle", type: "text", placeholder: "Your name or @handle", options: [], multiple: false },
   { key: "ageRange", label: "Age range", options: ["Under 25", "25-34", "35-44", "45-54", "55+"], multiple: false },
   { key: "shoePreference", label: "Usual shoe preference", options: ["Flats", "Heels", "Sandals", "Sneakers", "Boots"], multiple: true },
   { key: "purchaseFrequency", label: "How often do you buy shoes?", options: ["Monthly", "Quarterly", "A few times a year", "Only when needed"], multiple: false },
-  { key: "priceComfort", label: "Comfortable price range", options: ["Under $80", "$80-$120", "$120-$160", "$160-$220", "$220+"], multiple: false }
+  { key: "priceComfort", label: "Comfortable price range", options: priceComfortOptions, multiple: false }
 ];
 const defaultSurveyCopy = {
-  profileHeading: "First, help us understand your style.",
+  profileHeading: "First, help us to get to know you better.",
   profileHint: "Choose one answer per row. This helps Sunday Staples compare feedback across different customer groups.",
   profileStartButton: "Start design review"
 };
 const defaultFirstImpressionDrivers = [
   "More beautiful shape",
   "Better colour",
-  "Easier to style",
-  "Looks more comfortable",
-  "Better for a specific occasion"
+  "Easier to style"
 ];
 const backendTabs = [
   { id: "overview", label: "Overview", helper: "Snapshot" },
@@ -198,7 +200,10 @@ function normaliseProfileQuestions(questions) {
   return fallback.map((defaultQuestion) => {
     const saved = questions.find((question) => question?.key === defaultQuestion.key) || {};
     const isText = defaultQuestion.type === "text";
-    const options = Array.isArray(saved.options) ? saved.options.filter(Boolean) : defaultQuestion.options;
+    const savedOptions = Array.isArray(saved.options) ? saved.options.filter(Boolean) : null;
+    const options = defaultQuestion.key === "priceComfort" && sameList(savedOptions, previousPriceComfortOptions)
+      ? defaultQuestion.options
+      : savedOptions || defaultQuestion.options;
     return {
       key: defaultQuestion.key,
       label: String(saved.label || defaultQuestion.label).trim(),
@@ -221,7 +226,17 @@ function primaryProfileKey() {
 
 function surveyCopy() {
   state.showroom.copy = { ...defaultSurveyCopy, ...(state.showroom.copy || {}) };
+  if (state.showroom.copy.profileHeading === previousProfileHeading) {
+    state.showroom.copy.profileHeading = defaultSurveyCopy.profileHeading;
+  }
   return state.showroom.copy;
+}
+
+function sameList(left, right) {
+  return Array.isArray(left)
+    && Array.isArray(right)
+    && left.length === right.length
+    && left.every((item, index) => item === right[index]);
 }
 
 function normaliseAdminCredentials(credentials = {}) {
@@ -348,8 +363,8 @@ function normaliseFirstDrivers(drivers = []) {
   const clean = (Array.isArray(drivers) ? drivers : [])
     .map((driver) => String(driver || "").trim())
     .filter(Boolean)
-    .slice(0, 5);
-  return [...clean, ...defaultFirstImpressionDrivers].slice(0, 5);
+    .slice(0, firstDriverLimit);
+  return [...clean, ...defaultFirstImpressionDrivers].slice(0, firstDriverLimit);
 }
 
 function firstDrivers() {
@@ -848,7 +863,7 @@ function firstImpressionsSection() {
       <div class="profile-copy-card first-driver-card">
         <div>
           <h3>Customise Choose Why options</h3>
-          <p class="hint">These five buttons appear when participants choose why they preferred a head-to-head design.</p>
+          <p class="hint">These three buttons appear when participants choose why they preferred a head-to-head design.</p>
         </div>
         ${drivers.map((driver, index) => `
           <label>Reason ${index + 1}
@@ -1459,7 +1474,7 @@ function purchasePreview() {
       <strong>${purchaseRound + 1} / ${state.showroom.purchaseRounds.length}</strong>
     </div>
     <h2>Rank which designs you would most likely buy within the next 30 days.</h2>
-    <p class="hint">Place your strongest purchase choice at #1. Drag cards into place or use the Up / Down buttons.</p>
+    <p class="hint">Place your strongest purchase choice at #1. Press and drag each card into a numbered slot.</p>
     <div class="current-pick">
       <span>Current #1</span>
       <strong>${assetById(ranked[0])?.name || "-"}</strong>
@@ -1476,16 +1491,18 @@ function purchasePreview() {
 function rankThumb(asset, index) {
   if (!asset) return "";
   return `
-    <div class="rank-thumb" draggable="true" data-rank-id="${asset.id}">
-      <span class="rank-slot-number">#${index + 1}</span>
-      <img style="${imageStyle(asset)}" src="${asset.image}" alt="${escapeAttribute(asset.name)}" />
-      <div>
-        <small>Drag to reorder</small>
-        <strong>${asset.name}</strong>
+    <div class="rank-slot" data-rank-slot="${index}">
+      <div class="rank-slot-marker">
+        <span>#${index + 1}</span>
+        <small>${index === 0 ? "Most likely" : index === 4 ? "Least likely" : "Drop here"}</small>
       </div>
-      <div class="rank-actions">
-        <button type="button" data-action="rank-move" data-direction="-1" data-rank-id="${asset.id}" ${index === 0 ? "disabled" : ""}>Up</button>
-        <button type="button" data-action="rank-move" data-direction="1" data-rank-id="${asset.id}" ${index === 4 ? "disabled" : ""}>Down</button>
+      <div class="rank-thumb" data-rank-id="${asset.id}">
+        <span class="rank-grip" aria-hidden="true"></span>
+        <img style="${imageStyle(asset)}" src="${asset.image}" alt="${escapeAttribute(asset.name)}" draggable="false" />
+        <div>
+          <small>Drag to reorder</small>
+          <strong>${asset.name}</strong>
+        </div>
       </div>
     </div>
   `;
@@ -1928,12 +1945,6 @@ function bindEvents() {
     });
   });
 
-  document.querySelectorAll("[data-action='rank-move']").forEach((button) => {
-    button.addEventListener("click", () => {
-      movePurchaseRank(button.dataset.rankId, Number(button.dataset.direction));
-    });
-  });
-
   document.querySelector("[data-action='price-slider']")?.addEventListener("input", (event) => {
     document.querySelector("[data-price-readout]").textContent = event.target.value;
   });
@@ -2159,31 +2170,73 @@ function round(value) {
 }
 
 function bindRankingDrag() {
-  let draggedId = null;
+  const plane = document.querySelector("[data-rank-plane]");
+  if (!plane) return;
+
   document.querySelectorAll(".rank-thumb[data-rank-id]").forEach((item) => {
-    item.addEventListener("dragstart", () => {
-      draggedId = item.dataset.rankId;
+    let drag = null;
+
+    item.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      const rect = item.getBoundingClientRect();
+      drag = {
+        id: item.dataset.rankId,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        targetSlot: item.closest(".rank-slot")
+      };
+      item.setPointerCapture(event.pointerId);
       item.classList.add("dragging");
-    });
-    item.addEventListener("dragend", () => {
-      item.classList.remove("dragging");
-      document.querySelectorAll(".drop-target").forEach((node) => node.classList.remove("drop-target"));
-    });
-    item.addEventListener("dragenter", () => {
-      if (draggedId && draggedId !== item.dataset.rankId) item.classList.add("drop-target");
-    });
-    item.addEventListener("dragleave", () => item.classList.remove("drop-target"));
-    item.addEventListener("dragover", (event) => {
+      plane.classList.add("is-dragging");
+      item.style.width = `${rect.width}px`;
       event.preventDefault();
-      if (draggedId && draggedId !== item.dataset.rankId) item.classList.add("drop-target");
     });
-    item.addEventListener("drop", (event) => {
+
+    item.addEventListener("pointermove", (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const deltaX = event.clientX - drag.startX;
+      const deltaY = event.clientY - drag.startY;
+      item.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(1.02)`;
+      item.style.zIndex = "6";
+      item.style.pointerEvents = "none";
+
+      const slot = document.elementFromPoint(event.clientX, event.clientY)?.closest(".rank-slot");
+      item.style.pointerEvents = "";
+      document.querySelectorAll(".rank-slot.drop-target").forEach((node) => node.classList.remove("drop-target"));
+      if (slot) {
+        slot.classList.add("drop-target");
+        drag.targetSlot = slot;
+      }
       event.preventDefault();
-      if (!draggedId || draggedId === item.dataset.rankId) return;
-      applyPurchaseReorder(draggedId, item.dataset.rankId);
-      render();
+    });
+
+    item.addEventListener("pointerup", (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const targetId = drag.targetSlot?.querySelector(".rank-thumb[data-rank-id]")?.dataset.rankId;
+      finishRankDrag(item, plane);
+      if (targetId && targetId !== drag.id) {
+        applyPurchaseReorder(drag.id, targetId);
+        render();
+      }
+      drag = null;
+    });
+
+    item.addEventListener("pointercancel", () => {
+      finishRankDrag(item, plane);
+      drag = null;
     });
   });
+}
+
+function finishRankDrag(item, plane) {
+  item.classList.remove("dragging");
+  item.style.transform = "";
+  item.style.zIndex = "";
+  item.style.width = "";
+  item.style.pointerEvents = "";
+  plane.classList.remove("is-dragging");
+  document.querySelectorAll(".rank-slot.drop-target").forEach((node) => node.classList.remove("drop-target"));
 }
 
 function currentPurchaseRanking(fallbackIds = []) {
@@ -2205,17 +2258,6 @@ function applyPurchaseReorder(draggedId, targetId) {
   const [moved] = current.splice(from, 1);
   current.splice(to, 0, moved);
   draftResponse.purchaseIntent[purchaseRound] = { ...(draftResponse.purchaseIntent[purchaseRound] || {}), ranking: uniqueRanking(current, uniqueIds(state.showroom.purchaseRounds[purchaseRound] || [])) };
-}
-
-function movePurchaseRank(id, direction) {
-  const current = readRankingOrder();
-  const from = current.indexOf(id);
-  const to = from + direction;
-  if (from < 0 || to < 0 || to >= current.length) return;
-  const [moved] = current.splice(from, 1);
-  current.splice(to, 0, moved);
-  draftResponse.purchaseIntent[purchaseRound] = { ...(draftResponse.purchaseIntent[purchaseRound] || {}), ranking: uniqueRanking(current, uniqueIds(state.showroom.purchaseRounds[purchaseRound] || [])) };
-  render();
 }
 
 function uniqueRanking(ranking = [], fallbackIds = []) {
