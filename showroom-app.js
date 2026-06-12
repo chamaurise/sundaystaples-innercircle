@@ -668,6 +668,14 @@ function overviewSection() {
   `;
 }
 
+function adminSaveButton() {
+  return `
+    <div class="button-row">
+      <button class="primary-button" data-action="save-admin-page">Save Changes</button>
+    </div>
+  `;
+}
+
 function liveStepsSection() {
   const active = liveSteps();
   const activeCount = activeSurveySteps().length;
@@ -754,7 +762,7 @@ function repositorySection() {
         ${state.assets.map(assetCard).join("")}
       </div>
       <div class="button-row">
-        <button class="primary-button" data-action="save-repository">Save Changes</button>
+        <button class="primary-button" data-action="save-admin-page">Save Changes</button>
         <button class="ghost-button" data-view="preview">Open Preview</button>
       </div>
     </section>
@@ -825,7 +833,7 @@ function profileSection() {
         ${profileQuestionSet().map(profileEditorCard).join("")}
       </div>
       <div class="button-row">
-        <button class="primary-button" data-action="save-backend">Save profile questions</button>
+        <button class="primary-button" data-action="save-admin-page">Save Changes</button>
         <button class="ghost-button" data-action="reset-profile-questions">Reset to recommended template</button>
       </div>
     </section>
@@ -884,7 +892,7 @@ function firstImpressionsSection() {
         ${firstImpressionMatches().slice(0, 12).map((match, index) => matchupCard(match, index)).join("")}
       </div>
       <div class="button-row">
-        <button class="primary-button" data-action="save-backend">Save showroom setup</button>
+        <button class="primary-button" data-action="save-admin-page">Save Changes</button>
       </div>
     </section>
   `;
@@ -937,6 +945,7 @@ function purchaseIntentSection() {
       <div class="purchase-builder">
         ${state.showroom.purchaseRounds.map((round, index) => purchaseRoundBuilder(round, index)).join("")}
       </div>
+      ${adminSaveButton()}
     </section>
   `;
 }
@@ -971,6 +980,7 @@ function occasionFitSection() {
       <div class="price-builder">
         ${state.assets.map((asset) => selectionRow(asset, "occasion", state.showroom.occasionItems.includes(asset.id))).join("")}
       </div>
+      ${adminSaveButton()}
     </section>
   `;
 }
@@ -988,6 +998,7 @@ function priceValueSection() {
       <div class="price-builder">
         ${state.assets.map(priceBuilderRow).join("")}
       </div>
+      ${adminSaveButton()}
     </section>
   `;
 }
@@ -1005,6 +1016,7 @@ function founderActionSection() {
       <div class="price-builder">
         ${state.assets.map((asset) => selectionRow(asset, "action", state.showroom.actionItems.includes(asset.id))).join("")}
       </div>
+      ${adminSaveButton()}
     </section>
   `;
 }
@@ -1080,6 +1092,7 @@ function resultsSection() {
         ${analytics.rows.map(resultAnalyticsRow).join("") || `<div class="empty-row">No responses yet. Use Preview to create test data.</div>`}
       </div>
       <div class="button-row">
+        <button class="primary-button" data-action="save-admin-page">Save Changes</button>
         <button class="ghost-button" data-action="clear-responses">Clear preview responses</button>
       </div>
     </section>
@@ -1489,7 +1502,7 @@ function purchasePreview() {
       ${ranked.map((id, index) => rankThumb(assetById(id), index)).join("")}
     </div>
     <div class="sticky-save">
-      <button class="primary-button" data-action="save-purchase-round">Double tap to Save</button>
+      <button class="primary-button" data-action="save-purchase-round">Save Ranking</button>
     </div>
   `;
 }
@@ -1849,14 +1862,9 @@ function bindEvents() {
     });
   });
 
-  document.querySelector("[data-action='save-backend']")?.addEventListener("click", () => {
-    updateProfileQuestionsFromForm();
-    updateFirstDriversFromForm();
-    syncRepositoryTagsFromFirstRounds();
-    saveState();
-    saveNotice = backendTab === "profile" ? "Profile questions saved. Preview has been updated." : "Survey setup saved. Preview has been updated.";
-    render();
-  });
+  document.querySelector("[data-action='save-admin-page']")?.addEventListener("click", saveCurrentAdminPage);
+
+  document.querySelector("[data-action='save-backend']")?.addEventListener("click", saveCurrentAdminPage);
 
   document.querySelector("[data-action='reset-profile-questions']")?.addEventListener("click", () => {
     state.showroom.profileQuestions = cloneProfileQuestions(defaultProfileQuestions);
@@ -1865,13 +1873,7 @@ function bindEvents() {
     render();
   });
 
-  document.querySelector("[data-action='save-repository']")?.addEventListener("click", () => {
-    document.querySelectorAll("[data-asset]").forEach((card) => updateAssetFromCard(card, false));
-    syncPriceItemsWithAssets();
-    saveState();
-    saveNotice = `Saved ${state.assets.length} repository concept${state.assets.length === 1 ? "" : "s"}. Preview has been updated.`;
-    render();
-  });
+  document.querySelector("[data-action='save-repository']")?.addEventListener("click", saveCurrentAdminPage);
 
   document.querySelector("[data-action='clear-responses']")?.addEventListener("click", () => {
     state.responses = [];
@@ -2091,6 +2093,40 @@ function updateFirstDriversFromForm() {
     return value || driver;
   });
   state.showroom.firstDrivers = normaliseFirstDrivers(drivers);
+}
+
+function updateAdminCredentialsFromForm() {
+  const usernameField = document.querySelector("[data-admin-credential='username']");
+  const passwordField = document.querySelector("[data-admin-credential='password']");
+  if (!usernameField && !passwordField) return;
+  const username = usernameField?.value.trim() || defaultAdminCredentials.username;
+  const password = passwordField?.value || defaultAdminCredentials.password;
+  state.adminCredentials = normaliseAdminCredentials({ username, password });
+}
+
+function updatePriceStartsFromForm() {
+  document.querySelectorAll("[data-price-start]").forEach((input) => {
+    const item = state.showroom.priceItems.find((priceItem) => priceItem.id === input.dataset.priceStart);
+    if (!item) return;
+    item.startPrice = Number(input.value);
+    const asset = assetById(item.id);
+    if (asset) asset.rrp = Number(input.value) || asset.rrp;
+  });
+}
+
+function saveCurrentAdminPage() {
+  if (backendTab === "repository") {
+    document.querySelectorAll("[data-asset]").forEach((card) => updateAssetFromCard(card, false));
+    syncPriceItemsWithAssets();
+  }
+  if (backendTab === "profile" || backendTab === "overview") updateProfileQuestionsFromForm();
+  if (backendTab === "first" || backendTab === "overview") updateFirstDriversFromForm();
+  if (backendTab === "price" || backendTab === "overview") updatePriceStartsFromForm();
+  if (backendTab === "overview") updateAdminCredentialsFromForm();
+  syncRepositoryTagsFromFirstRounds();
+  saveState();
+  saveNotice = `${backendTabs.find((tab) => tab.id === backendTab)?.label || "Admin"} changes saved. Preview has been updated.`;
+  render();
 }
 
 async function addUploadedFiles(files) {
