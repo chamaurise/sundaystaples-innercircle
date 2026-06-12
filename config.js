@@ -70,7 +70,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-01.png",
+      image: "./shoe-concepts/Sample 1.jpeg",
       c1: "#f1d6bd",
       c2: "#8f4d45",
       note: "Upcoming Sunday Staples shoe design."
@@ -81,7 +81,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-02.png",
+      image: "./shoe-concepts/Sample 2.jpeg",
       c1: "#d5dde5",
       c2: "#263947",
       note: "Upcoming Sunday Staples shoe design."
@@ -92,7 +92,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-03.png",
+      image: "./shoe-concepts/Sample 3.jpeg",
       c1: "#e8c2c8",
       c2: "#306555",
       note: "Upcoming Sunday Staples shoe design."
@@ -103,7 +103,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-04.png",
+      image: "./shoe-concepts/Sample 4.jpeg",
       c1: "#ecd995",
       c2: "#9a3327",
       note: "Upcoming Sunday Staples shoe design."
@@ -114,7 +114,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-05.png",
+      image: "./shoe-concepts/Sample 5.jpeg",
       c1: "#f4f0e8",
       c2: "#202020",
       note: "Upcoming Sunday Staples shoe design."
@@ -125,7 +125,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-06.png",
+      image: "./shoe-concepts/Sample 6.jpeg",
       c1: "#c9d7c6",
       c2: "#665f38",
       note: "Upcoming Sunday Staples shoe design."
@@ -136,7 +136,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-07.png",
+      image: "./shoe-concepts/Sample 7.jpeg",
       c1: "#f6d6d1",
       c2: "#58445c",
       note: "Upcoming Sunday Staples shoe design."
@@ -147,7 +147,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-08.png",
+      image: "./shoe-concepts/Sample 8.jpeg",
       c1: "#d8e2df",
       c2: "#7c4c2f",
       note: "Upcoming Sunday Staples shoe design."
@@ -158,7 +158,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-09.png",
+      image: "./shoe-concepts/Sample 9.jpeg",
       c1: "#f3ebd5",
       c2: "#315d70",
       note: "Upcoming Sunday Staples shoe design."
@@ -169,7 +169,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-10.png",
+      image: "./shoe-concepts/Sample 10.jpeg",
       c1: "#e4c5a9",
       c2: "#5b2c2a",
       note: "Upcoming Sunday Staples shoe design."
@@ -180,7 +180,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Shoe concept",
       material: "To be confirmed",
       price: "$159",
-      image: "./shoe-concepts/concept-11.png",
+      image: "./shoe-concepts/Sample 11.jpeg",
       c1: "#d9d1e5",
       c2: "#2c4b3e",
       note: "Upcoming Sunday Staples shoe design."
@@ -191,7 +191,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Mesh floral flat",
       material: "Cream mesh",
       price: "$159",
-      image: "./shoe-concepts/concept-12.jpg",
+      image: "./shoe-concepts/Sample 12.jpeg",
       c1: "#f1dfb7",
       c2: "#6d6f78",
       note: "Upcoming Sunday Staples shoe design."
@@ -202,7 +202,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Mesh floral flat",
       material: "Light blue mesh",
       price: "$159",
-      image: "./shoe-concepts/concept-13.jpg",
+      image: "./shoe-concepts/Sample 13.jpeg",
       c1: "#d7eee5",
       c2: "#9a5241",
       note: "Upcoming Sunday Staples shoe design."
@@ -213,7 +213,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Mesh floral flat",
       material: "Nude mesh",
       price: "$159",
-      image: "./shoe-concepts/concept-14.jpg",
+      image: "./shoe-concepts/Sample 14.jpeg",
       c1: "#f3ccd6",
       c2: "#555045",
       note: "Upcoming Sunday Staples shoe design."
@@ -224,7 +224,7 @@ window.SUNDAY_CIRCLE_CONFIG = {
       style: "Mesh floral flat",
       material: "Pink mesh",
       price: "$159",
-      image: "./shoe-concepts/concept-15.jpg",
+      image: "./shoe-concepts/Sample 15.jpeg",
       c1: "#dce1f1",
       c2: "#8c6b2c",
       note: "Upcoming Sunday Staples shoe design."
