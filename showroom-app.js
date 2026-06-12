@@ -185,6 +185,8 @@ function cloneProfileQuestions(questions) {
   return questions.map((question) => ({
     key: question.key,
     label: question.label,
+    type: question.type || "choice",
+    placeholder: question.placeholder || "",
     options: [...question.options],
     multiple: Boolean(question.multiple)
   }));
@@ -1371,7 +1373,7 @@ function profileQuestion(question) {
     return `
       <fieldset class="choice-group" data-profile-group="${question.key}" data-profile-type="text">
         <legend>${question.label}</legend>
-        <input class="profile-text-input" type="text" name="${question.key}" placeholder="${escapeAttribute(question.placeholder)}" autocomplete="name" />
+        <textarea class="profile-text-input profile-text-area" name="${question.key}" placeholder="${escapeAttribute(question.placeholder)}" rows="3"></textarea>
       </fieldset>
     `;
   }
@@ -2010,7 +2012,7 @@ function updateProfileQuestionsFromForm() {
 
 function profileGroupValue(group) {
   if (group.dataset.profileType === "text") {
-    return group.querySelector("input")?.value.trim() || "";
+    return group.querySelector("textarea, input")?.value.trim() || "";
   }
   const selected = [...group.querySelectorAll("input:checked")].map((input) => input.value);
   return group.dataset.profileMultiple === "true" ? selected : selected[0] || "";

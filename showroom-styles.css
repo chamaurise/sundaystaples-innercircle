@@ -1398,13 +1398,19 @@ select {
   padding: 12px 13px;
   font: inherit;
   font-size: 14px;
-  color: var(--text);
+  color: var(--ink);
   background: #fff;
 }
 
 .profile-text-input:focus {
   border-color: var(--green);
   outline: 3px solid rgba(36,95,87,0.12);
+}
+
+.profile-text-area {
+  min-height: 92px;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .full-width {
