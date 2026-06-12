@@ -1987,23 +1987,7 @@ function bindEvents() {
   }
 
   document.querySelectorAll("[data-action='toggle-occasion-pick']").forEach((button) => {
-    let start = null;
-    button.addEventListener("pointerdown", (event) => {
-      start = { x: event.clientX, y: event.clientY };
-    });
-    button.addEventListener("pointerup", (event) => {
-      const moved = start ? Math.hypot(event.clientX - start.x, event.clientY - start.y) : 0;
-      start = null;
-      if (moved > 12) return;
-      event.preventDefault();
-      toggleOccasionPick(button.dataset.id);
-      render();
-    });
-    button.addEventListener("pointercancel", () => {
-      start = null;
-    });
-    button.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
+    button.addEventListener("click", (event) => {
       event.preventDefault();
       toggleOccasionPick(button.dataset.id);
       render();

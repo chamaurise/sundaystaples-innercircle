@@ -1606,13 +1606,16 @@ select {
   color: var(--ink);
   padding: 12px;
   text-align: left;
-  touch-action: pan-y;
+  touch-action: manipulation;
+  transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
 }
 
 .top-three-card.selected {
   border-color: var(--green);
-  background: rgba(36,95,87,0.08);
-  box-shadow: 0 10px 24px rgba(36,95,87,0.16);
+  border-width: 3px;
+  background: rgba(36,95,87,0.13);
+  box-shadow: 0 12px 28px rgba(36,95,87,0.24);
+  transform: translateY(-1px);
 }
 
 .top-three-card img {
@@ -1651,6 +1654,11 @@ select {
   font-weight: 900;
   box-shadow: 0 5px 16px rgba(34, 28, 21, 0.12);
   pointer-events: none;
+}
+
+.top-three-card.selected .top-three-check {
+  background: var(--green);
+  color: #fff;
 }
 
 .rank-plane {
