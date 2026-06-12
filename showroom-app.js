@@ -252,6 +252,7 @@ function normaliseLiveSteps(liveSteps = {}) {
   surveySteps.forEach((step) => {
     normalised[step.id] = liveSteps[step.id] !== false;
   });
+  if (normalised.purchase) normalised.occasion = true;
   if (!Object.values(normalised).some(Boolean)) normalised.profile = true;
   return normalised;
 }
