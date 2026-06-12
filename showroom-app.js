@@ -2390,7 +2390,16 @@ function currentPurchaseRanking(fallbackIds = []) {
 function selectedOccasionIds(fallbackIds = []) {
   const allowed = uniqueIds(fallbackIds);
   const pickLimit = Math.min(topBuyingPickLimit, allowed.length);
-  const selected = uniqueRanking((draftResponse.occasionFit || []).map((item) => item.id), allowed).slice(0, pickLimit);
+  const allowedSet = new Set(allowed);
+  const seen = new Set();
+  const selected = (draftResponse.occasionFit || [])
+    .map((item) => item.id)
+    .filter((id) => {
+      if (!allowedSet.has(id) || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .slice(0, pickLimit);
   draftResponse.occasionFit = selected.map((id) => ({ id, occasion: buyingPropensitySignal }));
   return selected;
 }
@@ -2401,7 +2410,7 @@ function toggleOccasionPick(id) {
   if (!allowed.includes(id)) return;
   const next = selected.includes(id)
     ? selected.filter((itemId) => itemId !== id)
-    : [...selected, id].slice(0, Math.min(topBuyingPickLimit, allowed.length));
+    : selected.length < Math.min(topBuyingPickLimit, allowed.length) ? [...selected, id] : selected;
   draftResponse.occasionFit = next.map((itemId) => ({ id: itemId, occasion: buyingPropensitySignal }));
 }
 
